@@ -35,6 +35,8 @@ actor ActivityScanner {
     /// 最近一次 AI 输出（会话日志写入），决定「工作中」
     private var lastOutput: [String: Date] = [:]
     private var front: String?
+    /// 正在运行（App 或命令行）的工具
+    private var running = Set<String>()
     /// 只存消息 ID 的稳定哈希（FNV-1a），比存字符串省内存，也能跨启动保存
     private var claudeSeen = Set<UInt64>()
     /// 自上次保存扫描缓存以来有没有读到新数据
@@ -48,7 +50,7 @@ actor ActivityScanner {
         let home = FileManager.default.home
         claudeRoots = ClaudeProvider.configDirs.map { $0.appendingPathComponent("projects").path }
         codexRoots = CodexProvider.sessionRoots.map(\.path)
-        chatRoots = [("gemini", home.appendingPathComponent(".gemini/tmp").path),
+        chatRoots = [("gemini", GeminiProvider.geminiHome.appendingPathComponent("tmp").path),
                      ("qwen", home.appendingPathComponent(".qwen/tmp").path)]
         presence = Self.loadPresence()
         for (t, m) in presence { if let last = m.max() { latest[t] = Date(timeIntervalSince1970: Double(last + 1) * 60) } }
@@ -126,6 +128,8 @@ actor ActivityScanner {
     }
 
     func setFront(_ tool: String?) { front = tool }
+
+    func setRunning(_ ids: Set<String>) { running = ids }
 
     func flush() {
         if presenceDirty { savePresence() }
@@ -478,6 +482,7 @@ actor ActivityScanner {
             s.installed = true
             s.lastActive = id == front ? now : latest[id]
             s.lastOutput = lastOutput[id]
+            s.running = running.contains(id)
             s.sessions = recentWrites[id]?.values.filter { now.timeIntervalSince($0) < 60 }.count ?? 0
             let p = Provider(id: id)
             snap.live[p] = s

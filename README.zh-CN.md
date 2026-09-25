@@ -27,8 +27,9 @@ AI Dock 用一条外观和行为都和系统 Dock 一致的 Dock 替换系统 Do
 **和原生一致的 Dock**
 
 - 常用 App、运行指示灯、最近使用的 App、废纸篓，第一次启动时从系统 Dock 导入。
-- 鱼眼放大、名称标签、启动跳动。
+- 鱼眼放大、名称标签、带重力感的启动跳动。
 - 拖动排序，拖进 App 或文件夹来添加，拖出 Dock 移除（带「噗」的烟雾效果）。
+- **AI 小组件也能像 App 一样拖动**：可以调换顺序，也可以放到 App 之间（比如 Claude、微信、Cursor、QQ 这样穿插）。放在 App 之间时和图标一样大，也会跟着一起放大。
 - 文件拖到 App 上用它打开，拖到文件夹上放进去，拖到废纸篓上删除。
 - 右键菜单的结构、文案（直接读取系统自带的本地化文件）和带尖角的样式都与系统 Dock 相同：选项 ▸ 在程序坞中保留 / 登录时打开 / 在访达中显示，显示所有窗口，隐藏，退出。按住 ⌥ 变为「隐藏其他」「强制退出」。
 - ⌘ 点按在访达中显示；⌥ 点按切换到该 App 并隐藏刚才的 App。
@@ -37,9 +38,10 @@ AI Dock 用一条外观和行为都和系统 Dock 一致的 Dock 替换系统 Do
 
 **AI 小组件**
 
-- **套餐额度**：Claude（Claude Code）、ChatGPT / Codex、Cursor 的 5 小时和每周窗口用圆环显示，附重置时间。
+- **套餐额度**：Claude（Claude Code）、ChatGPT / Codex、Cursor、Antigravity、Gemini 的额度用圆环显示，附重置时间。读不到额度时（没登录、App 没开、账号没有套餐），小组件自动改为显示使用时长，不显示报错，详情里会说明原因。
+- **状态点**：亮点表示 AI 正在输出，暗点表示 App 或命令行开着但没在工作，空心圈表示没打开。
 - **AI 活动**：24 小时 / 7 天柱状图，按工具显示使用时长或 Token 用量，数据来自本地会话日志。
-- **自动检测**：识别 30 种 AI 工具（Claude、ChatGPT、Cursor、Gemini、Copilot、Windsurf、Trae、Kiro、DeepSeek、Kimi、Ollama、LM Studio 等），根据每个工具支持的数据生成小组件。
+- **自动检测**：识别 30 种 AI 工具（Claude、ChatGPT、Cursor、Gemini、Antigravity、Copilot、Windsurf、Trae、Kiro、DeepSeek、Kimi、Ollama、LM Studio 等），根据每个工具支持的数据生成小组件。命令行工具会通过登录 shell 的 `PATH` 和常见安装位置查找（Homebrew、npm、nvm、fnm、Volta、pnpm、Bun、asdf、mise），也会读取 `CLAUDE_CONFIG_DIR`、`CODEX_HOME`、`GEMINI_CLI_HOME`。
 - **本地模型**：显示 Ollama、LM Studio 已加载和已下载的模型。
 - **API 余额**：粘贴任意 Key，按格式自动识别平台。支持 DeepSeek、Moonshot（Kimi）、硅基流动、OpenRouter。
 - **菜单栏面板**：显示同样的数据，另有分标签页的设置窗口。
@@ -56,6 +58,8 @@ AI Dock 用一条外观和行为都和系统 Dock 一致的 Dock 替换系统 Do
 |---|---|---|
 | <img src="docs/screenshots/menu-light.png" width="280"> | <img src="docs/screenshots/dockmenu-light.png" width="170"> | <img src="docs/screenshots/settings-widgets.png" width="280"> |
 
+<img src="docs/screenshots/dock-mixed-light.png" alt="小组件放在 App 之间" width="900">
+
 <img src="docs/screenshots/dock-magnify-dark.png" alt="放大效果" width="900">
 
 *截图用示例数据渲染（`AIDock --render <目录>`）。*
@@ -63,7 +67,7 @@ AI Dock 用一条外观和行为都和系统 Dock 一致的 Dock 替换系统 Do
 ## 系统要求
 
 - macOS 26（Tahoe）或更高版本，Apple 芯片或 Intel 均可。开发和测试环境为 macOS 27。
-- 要显示套餐额度，需要在这台 Mac 上登录对应工具：Claude Code、Codex 命令行或 ChatGPT App、Cursor。
+- 要显示套餐额度，需要在这台 Mac 上登录对应工具：Claude Code、Codex 命令行或 ChatGPT App、Cursor。Antigravity 的额度在它运行时读取。
 
 ## 安装
 
@@ -96,6 +100,8 @@ AI Dock 用一条外观和行为都和系统 Dock 一致的 Dock 替换系统 Do
 | Claude Code | `api.anthropic.com/api/oauth/usage` | 钥匙串「Claude Code-credentials」或 `~/.claude/.credentials.json` |
 | ChatGPT / Codex | `chatgpt.com/backend-api/wham/usage`；失败时改用本地会话日志里的 `rate_limits` | `~/.codex/auth.json` |
 | Cursor | `cursor.com/api/usage-summary`（旧套餐：`/api/usage`） | Cursor 本地的 `state.vscdb`，只读打开 |
+| Antigravity | Antigravity 自己在 `127.0.0.1` 上运行的本地服务（`RetrieveUserQuotaSummary` / `GetUserStatus`），只在 Antigravity 开着时可读 | 从本地服务的进程参数中读取会话令牌 |
+| Gemini | `cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota`（Gemini Code Assist） | `~/.gemini/oauth_creds.json`。Google 已不再向个人账号提供这项额度，个人账号的额度改在 Antigravity 中显示 |
 
 - **AI 活动**来自 `~/.claude/projects`、`~/.codex/sessions`、`~/.gemini/tmp`、`~/.qwen/tmp` 下的本地会话日志，再加上各 AI App 在前台的时长（离开超过 5 分钟的部分不计）。Token 数包含缓存 Token，和官方面板的口径一致。每日统计按本地时间划分，有些官方面板按 UTC 划分。
 - **登录续期**：
@@ -113,7 +119,7 @@ cd ai-dock
 open "build/AI Dock.app"
 ```
 
-- `swift scripts/make_logos.swift`（可选）：从本机已安装的 App 中提取更清晰的品牌标志到 `Resources/Logos`，仅供自己构建使用。仓库和发布包都不包含这些标志；没有时，AI Dock 会在运行时从已安装 App 的图标中提取。
+- `swift scripts/make_logos.swift`：从本机已安装的官方 App 重新生成 `Resources/Logos` 里的品牌标志。
 - `"build/AI Dock.app/Contents/MacOS/AIDock" --render /tmp/preview`：用示例数据把界面渲染成 PNG。
 
 ## 卸载
@@ -138,7 +144,7 @@ open "build/AI Dock.app"
 
 ## 免责声明
 
-- **非官方**：AI Dock 是独立的非官方项目，与 Apple Inc.、Anthropic PBC、OpenAI、Anysphere Inc.（Cursor）、Google LLC、Dockset 及文中提到的任何公司均无关联，也未获得其认可。文中所有产品名称、标志和商标均归各自所有者所有，仅用于指明对应的服务。
+- **非官方**：AI Dock 是独立的非官方项目，与 Apple Inc.、Anthropic PBC、OpenAI、Anysphere Inc.（Cursor）、Google LLC、Dockset 及文中提到的任何公司均无关联，也未获得其认可。文中所有产品名称、标志和商标均归各自所有者所有，仅用于指明对应的服务。如果你是相关商标的所有者并希望移除，请提交 issue。
 - **使用未公开接口**：套餐额度通过官方客户端使用的未公开接口读取，使用的是你电脑上已有的登录信息。这些接口可能变化、失效、被限流，也可能不符合服务商的使用条款。请自行查阅所用服务的条款；如何使用本软件由你自行负责。
 - **会修改本机状态**：本软件可能修改系统 Dock 的偏好设置（自动隐藏及其延迟；你选择时还包括最小化效果），把续期后的 OAuth 令牌写回原来的钥匙串条目或文件，把 API Key 存入钥匙串；在你要求时，还会添加登录项或清倒废纸篓。
 - **显示的数字可能不准确**：用量、活动、余额等数据均为尽力估算，可能与官方面板不同，请勿作为计费依据。

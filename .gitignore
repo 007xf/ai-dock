@@ -4,6 +4,3 @@ dist/
 .DS_Store
 *.xcodeproj/xcuserdata/
 .swiftpm/
-# 从本机已安装 App 提取的品牌标志，仅供本机自用，不入库
-# Brand logos extracted from locally installed apps — for personal builds only
-Resources/Logos/

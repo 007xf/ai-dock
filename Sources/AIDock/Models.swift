@@ -110,23 +110,26 @@ struct LiveStatus: Equatable {
     /// 最近 60 秒内有写入的会话数
     var sessions = 0
     var installed = false
+    /// App 或命令行正在运行
+    var running = false
 
+    /// working：AI 正在输出（亮点）；recent：打开了但没在工作（暗点）；idle：没打开（空心圈）
     enum State { case working, recent, idle, missing }
 
     func state(now: Date = Date()) -> State {
         guard installed else { return .missing }
         if let lastOutput, now.timeIntervalSince(lastOutput) < 60 { return .working }
-        guard let lastActive else { return .idle }
-        if now.timeIntervalSince(lastActive) < 15 * 60 { return .recent }
-        return .idle
+        return running ? .recent : .idle
     }
 
     func text(now: Date = Date()) -> String {
         switch state(now: now) {
         case .missing: return L("未检测到")
         case .working: return sessions > 1 ? L("工作中 ×%@", "\(sessions)") : L("工作中")
-        case .recent: return L("%@活跃", "\(Fmt.ago(lastActive, now: now))")
-        case .idle: return L("空闲")
+        case .recent:
+            if let lastActive, now.timeIntervalSince(lastActive) < 3600 { return L("%@活跃", "\(Fmt.ago(lastActive, now: now))") }
+            return L("已打开")
+        case .idle: return L("未打开")
         }
     }
 }

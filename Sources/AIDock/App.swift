@@ -176,8 +176,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private let popover = NSPopover()
     private let makeContent: (CGFloat?) -> MenuContentView
-    /// 弹窗打开时再点一次图标：按下鼠标时弹窗已经因为「点到外面」先关掉了，松开时按钮动作不应再把它打开
-    private var closedByIconAt: Date?
+    private var monitors: [Any] = []
 
     var visible: Bool {
         get { item.isVisible }
@@ -192,47 +191,67 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         item.button?.toolTip = "AI Dock"
         item.button?.target = self
         item.button?.action = #selector(toggle)
-        popover.behavior = .transient
+        // 不用系统的「点外面自动关闭」：它会把点图标也当成点外面，先关掉再被按钮重新打开。
+        // 改成自己判断——点图标只由按钮切换开关，点其他地方或按 Esc 才关闭
+        popover.behavior = .applicationDefined
         popover.animates = false
         popover.delegate = self
     }
 
     @objc private func toggle() {
         guard let button = item.button else { return }
-        if let t = closedByIconAt {
-            closedByIconAt = nil
-            if Date().timeIntervalSince(t) < 1 { return }
-        }
         if popover.isShown {
             popover.performClose(nil)
-        } else {
-            // 打开时才创建界面，关闭后释放，平时不占内存。
-            // 先量好尺寸再固定：内容比屏幕高时中间改成滚动，避免面板被推出屏幕顶部
-            let maxH = ((button.window?.screen ?? NSScreen.main)?.visibleFrame.height ?? 800) - 40
-            let hc = NSHostingController(rootView: makeContent(nil))
-            hc.sizingOptions = []
-            var size = hc.sizeThatFits(in: CGSize(width: 320, height: 10_000))
-            if size.height > maxH {
-                hc.rootView = makeContent(maxH)
-                size.height = maxH
-            }
-            popover.contentSize = size
-            popover.contentViewController = hc
-            Focus.borrow()
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            hc.view.window?.makeFirstResponder(nil)
+            return
         }
+        // 打开时才创建界面，关闭后释放，平时不占内存。
+        // 先量好尺寸再固定：内容比屏幕高时中间改成滚动，避免面板被推出屏幕顶部
+        let maxH = ((button.window?.screen ?? NSScreen.main)?.visibleFrame.height ?? 800) - 40
+        let hc = NSHostingController(rootView: makeContent(nil))
+        hc.sizingOptions = []
+        var size = hc.sizeThatFits(in: CGSize(width: 320, height: 10_000))
+        if size.height > maxH {
+            hc.rootView = makeContent(maxH)
+            size.height = maxH
+        }
+        popover.contentSize = size
+        popover.contentViewController = hc
+        Focus.borrow()
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        hc.view.window?.makeFirstResponder(nil)
+        installMonitors()
     }
 
-    func popoverWillClose(_ notification: Notification) {
-        // 这次关闭是不是由点按菜单栏图标引起的
-        if let ev = NSApp.currentEvent, [.leftMouseDown, .rightMouseDown].contains(ev.type),
-           let w = item.button?.window, ev.window === w {
-            closedByIconAt = Date()
-        }
+    private func installMonitors() {
+        removeMonitors()
+        // 点到本 App 的其他窗口（Dock、设置窗口）：关闭；点面板自己或菜单栏图标：不管
+        if let m = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown], handler: { [weak self] ev in
+            guard let self, self.popover.isShown else { return ev }
+            let w = ev.window
+            if w !== self.item.button?.window, w !== self.popover.contentViewController?.view.window {
+                self.popover.performClose(nil)
+            }
+            return ev
+        }) { monitors.append(m) }
+        // 点到其他 App：关闭
+        if let m = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown], handler: { [weak self] _ in
+            MainActor.assumeIsolated { self?.popover.performClose(nil) }
+        }) { monitors.append(m) }
+        // Esc 关闭
+        if let m = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { [weak self] ev in
+            guard let self, self.popover.isShown, ev.keyCode == 53 else { return ev }
+            self.popover.performClose(nil)
+            return nil
+        }) { monitors.append(m) }
+    }
+
+    private func removeMonitors() {
+        monitors.forEach(NSEvent.removeMonitor)
+        monitors = []
     }
 
     func popoverDidClose(_ notification: Notification) {
+        removeMonitors()
         popover.contentViewController = nil
         Focus.giveBack()
     }
@@ -263,7 +282,7 @@ final class DockPanel: NSPanel {
 /// Dock 的拖放：从 Dock 拖出（排序 / 移除）、从访达拖入（添加 / 用某个 App 打开 / 移到废纸篓）
 @MainActor
 protocol DockDragHandler: AnyObject {
-    func dragItem(atX x: CGFloat) -> (id: String, url: URL, image: NSImage)?
+    func dragItem(atX x: CGFloat) -> (id: String, writer: NSPasteboardWriting, image: NSImage)?
     var dragIconSize: CGFloat { get }
     func dragBegan(id: String)
     func dragMoved(to screenPoint: NSPoint, session: NSDraggingSession)
@@ -278,6 +297,11 @@ protocol DockDragHandler: AnyObject {
 }
 
 /// 拖动源代理：把系统的拖动回调转给 Dock 控制器
+extension NSPasteboard.PasteboardType {
+    /// Dock 内部拖动小组件用的类型
+    static let aidockTile = NSPasteboard.PasteboardType("local.aidock.tile")
+}
+
 final class DockDragSource: NSObject, NSDraggingSource {
     weak var handler: DockDragHandler?
     var onEnd: (() -> Void)?
@@ -353,8 +377,8 @@ final class DockHostingView<Content: View>: NSHostingView<Content> {
             pressWork?.cancel()
             // 让按钮结束按下状态，避免拖完后图标一直是按下的样子
             releaseButton(event)
-            let item = NSDraggingItem(pasteboardWriter: hit.url as NSURL)
-            let size = NSSize(width: h.dragIconSize, height: h.dragIconSize)
+            let item = NSDraggingItem(pasteboardWriter: hit.writer)
+            let size = DockModel.isWidget(hit.id) ? hit.image.size : NSSize(width: h.dragIconSize, height: h.dragIconSize)
             let p = convert(event.locationInWindow, from: nil)
             item.setDraggingFrame(NSRect(x: p.x - size.width / 2, y: p.y - size.height / 2, width: size.width, height: size.height),
                                   contents: hit.image)
@@ -467,7 +491,7 @@ final class DockController: DockDragHandler {
                                                   metrics: metrics, openSettings: openSettings))
         host.sizingOptions = []
         host.dragHandler = self
-        host.registerForDraggedTypes([.fileURL])
+        host.registerForDraggedTypes([.fileURL, .aidockTile])
         panel.contentView = host
 
         trigger.onEnter = { [weak self] in self?.edgeEntered() }
@@ -730,12 +754,60 @@ final class DockController: DockDragHandler {
     // MARK: 拖放
 
     var dragIconSize: CGFloat { metrics.icon }
+    /// 正在拖动的项目的图像（小组件是按它插在 App 之间时的样子渲染的）
+    private var dragImage: NSImage?
 
-    func dragItem(atX x: CGFloat) -> (id: String, url: URL, image: NSImage)? {
-        guard let hit = hitIcon(atBarX: x - barOriginX), hit.id != "trash", hit.id != model.finder?.id,
-              let item = model.item(id: hit.id) else { return nil }
-        let id = hit.id
-        return (id, item.url, model.icon(for: item))
+    /// 能不能拖出 Dock 移除：固定的 App，以及除 API 余额以外的小组件（移除 = 隐藏，可在设置里重新打开）
+    private func removable(_ id: String) -> Bool {
+        DockModel.isWidget(id) ? !id.hasPrefix("widget:balance:") : model.pinned.contains { $0.id == id }
+    }
+
+    private func removeTile(_ id: String) {
+        guard DockModel.isWidget(id) else { model.remove(id); return }
+        model.remove(id)
+        let tool = String(id.dropFirst("widget:".count))
+        if tool == "activity" { settings.showActivityTile = false } else if !tool.hasPrefix("balance:") { settings.hiddenProviders.insert(tool) }
+    }
+
+    /// 废纸篓右边 x 处的小组件
+    private func tailWidget(atBarX x: CGFloat) -> String? {
+        guard let L = ui.layout else { return nil }
+        return L.tailIDs.first { id in
+            ui.tileFrames[id].map { $0.minX - metrics.spacing / 2 <= x && x <= $0.maxX + metrics.spacing / 2 } ?? false
+        }
+    }
+
+    func dragItem(atX x: CGFloat) -> (id: String, writer: NSPasteboardWriting, image: NSImage)? {
+        let xb = x - barOriginX
+        var result: (id: String, writer: NSPasteboardWriting, image: NSImage)?
+        if let hit = hitIcon(atBarX: xb), hit.id != "trash", hit.id != model.finder?.id {
+            if DockModel.isWidget(hit.id) {
+                result = widgetDrag(hit.id)
+            } else if let item = model.item(id: hit.id) {
+                result = (hit.id, item.url as NSURL, model.icon(for: item))
+            }
+        } else if let token = tailWidget(atBarX: xb) {
+            result = widgetDrag(token)
+        }
+        dragImage = result?.image
+        return result
+    }
+
+    private func widgetDrag(_ token: String) -> (id: String, writer: NSPasteboardWriting, image: NSImage) {
+        let pb = NSPasteboardItem()
+        pb.setString(token, forType: .aidockTile)
+        return (token, pb, widgetImage(token))
+    }
+
+    private func widgetImage(_ token: String) -> NSImage {
+        var m = metrics
+        m.widgetsCompact = true
+        let view = DockView.widget(token, store: store, settings: settings, ui: ui, metrics: m, openSettings: openSettings)
+            .frame(width: DockView.tileWidth(token, m), height: m.icon + m.dotRow)
+            .environment(\.colorScheme, SystemScheme.current)
+        let r = ImageRenderer(content: view)
+        r.scale = NSScreen.main?.backingScaleFactor ?? 2
+        return r.nsImage ?? NSImage(size: NSSize(width: m.icon, height: m.icon))
     }
 
     func dragBegan(id: String) {
@@ -748,30 +820,30 @@ final class DockController: DockDragHandler {
 
     /// 拖到 Dock 外面时，图标上方出现「移除」（和系统 Dock 一样）
     func dragMoved(to screenPoint: NSPoint, session: NSDraggingSession) {
-        guard let id = ui.dragID, model.pinned.contains(where: { $0.id == id }) else { return }
+        guard let id = ui.dragID, removable(id), let base = dragImage else { return }
         let outside = !barScreenRect.insetBy(dx: -10, dy: -40).contains(screenPoint)
-        guard outside != showingRemove, let item = model.item(id: id) else { return }
+        guard outside != showingRemove else { return }
         showingRemove = outside
-        let icon = model.icon(for: item)
-        let image = outside ? Self.removeImage(icon: icon, size: metrics.icon) : icon
-        session.enumerateDraggingItems(options: [], for: nil, classes: [NSURL.self], searchOptions: [:]) { dragItem, _, _ in
+        let size = DockModel.isWidget(id) ? base.size : NSSize(width: metrics.icon, height: metrics.icon)
+        let image = outside ? Self.removeImage(icon: base, size: size) : base
+        let shown = outside ? image.size : size
+        session.enumerateDraggingItems(options: [], for: nil, classes: [NSURL.self, NSPasteboardItem.self], searchOptions: [:]) { dragItem, _, _ in
             let f = dragItem.draggingFrame
-            let size = image.size
-            dragItem.setDraggingFrame(NSRect(x: f.midX - size.width / 2, y: f.minY, width: size.width, height: size.height), contents: image)
+            dragItem.setDraggingFrame(NSRect(x: f.midX - shown.width / 2, y: f.minY, width: shown.width, height: shown.height), contents: image)
         }
     }
 
     func dragEnded(at screenPoint: NSPoint, operation: NSDragOperation) {
         defer {
             ui.dragID = nil
-            ui.dropIndex = nil
-            ui.dropTarget = nil
+            setDrop(index: nil, tail: nil, target: nil)
             showingRemove = false
+            dragImage = nil
         }
         guard let id = ui.dragID, operation.isEmpty else { return }
         // 拖到 Dock 外面松手：从 Dock 移除（正在运行但没固定的 App 不能移除，会回到原位）
-        if !barScreenRect.insetBy(dx: -10, dy: -40).contains(screenPoint), model.pinned.contains(where: { $0.id == id }) {
-            model.remove(id)
+        if !barScreenRect.insetBy(dx: -10, dy: -40).contains(screenPoint), removable(id) {
+            removeTile(id)
             NSAnimationEffect.poof.show(centeredAt: screenPoint, size: NSSize(width: metrics.icon, height: metrics.icon))
         }
     }
@@ -790,12 +862,15 @@ final class DockController: DockDragHandler {
     func dropUpdated(_ info: NSDraggingInfo, x: CGFloat) -> NSDragOperation {
         guard let L = ui.layout else { return [] }
         let xb = x - barOriginX
-        // 从 Dock 里拖动：排序，拖到废纸篓 = 移除
+        // 从 Dock 里拖动：排序（小组件可以放到 App 之间，也可以放回废纸篓右边），拖到废纸篓 = 移除
         if let id = ui.dragID {
-            if L.item(at: xb) == "trash", model.pinned.contains(where: { $0.id == id }) {
-                setDrop(index: nil, target: "trash"); return .move
+            if L.item(at: xb) == "trash", removable(id) {
+                setDrop(index: nil, tail: nil, target: "trash"); return .move
             }
-            setDrop(index: L.insertionIndex(at: xb, excluding: id), target: nil)
+            if DockModel.isWidget(id), let t = L.tailInsertionIndex(at: xb, excluding: id, frames: ui.tileFrames) {
+                setDrop(index: nil, tail: t, target: nil); return .move
+            }
+            setDrop(index: L.insertionIndex(at: xb, excluding: id), tail: nil, target: nil)
             return ui.dropIndex == nil ? [] : .move
         }
         let urls = Self.urls(info)
@@ -822,21 +897,24 @@ final class DockController: DockDragHandler {
         return []
     }
 
-    private func setDrop(index: Int?, target: String?) {
+    private func setDrop(index: Int?, tail: Int? = nil, target: String?) {
         if ui.dropIndex != index { ui.dropIndex = index }
+        if ui.tailDropIndex != tail { ui.tailDropIndex = tail }
         if ui.dropTarget != target { ui.dropTarget = target }
     }
 
-    func dropExited() { setDrop(index: nil, target: nil) }
+    func dropExited() { setDrop(index: nil, tail: nil, target: nil) }
 
     func performDrop(_ info: NSDraggingInfo, x: CGFloat) -> Bool {
         defer { setDrop(index: nil, target: nil) }
         if let id = ui.dragID {
             if ui.dropTarget == "trash" {
-                model.remove(id)
+                removeTile(id)
                 NSAnimationEffect.poof.show(centeredAt: NSEvent.mouseLocation, size: NSSize(width: metrics.icon, height: metrics.icon))
             } else if let idx = ui.dropIndex {
                 model.move(id, to: idx)
+            } else if let t = ui.tailDropIndex {
+                model.moveWidgetToTail(id, at: t, current: ui.layout?.tailIDs ?? [])
             }
             return true
         }
@@ -885,9 +963,9 @@ final class DockController: DockDragHandler {
     private func hitIcon(atBarX x: CGFloat) -> (id: String, center: CGFloat)? {
         guard let L = ui.layout, let fe = fisheye else { return nil }
         var best: (id: String, center: CGFloat, d: CGFloat)?
-        for (id, c) in L.allIcons {
+        for (id, c, w) in L.allIcons {
             let d = abs(c + fe.shift(at: c) - x)
-            if d <= metrics.icon * fe.scale(at: c) / 2 + metrics.spacing / 2, d < (best?.d ?? .infinity) { best = (id, c, d) }
+            if d <= w * fe.scale(at: c) / 2 + metrics.spacing / 2, d < (best?.d ?? .infinity) { best = (id, c, d) }
         }
         return best.map { ($0.id, $0.center) }
     }
@@ -903,15 +981,20 @@ final class DockController: DockDragHandler {
         let centerX: CGFloat, top: CGFloat
         var target: String?
         if x > L.trashCenter + metrics.icon / 2 + metrics.spacing {
-            // AI 小组件：同样的菜单样式，出现在小组件上方
-            entries = widgetMenu(activity: ui.hovered == "w-activity")
-            centerX = point.x
+            // 废纸篓右边的 AI 小组件：同样的菜单样式，出现在小组件上方
+            let token = tailWidget(atBarX: x)
+            entries = widgetMenu(token)
+            centerX = token.flatMap { ui.tileFrames[$0] }.map { barOriginX + $0.midX } ?? point.x
             top = metrics.padBottom + metrics.dotRow + metrics.icon
         } else if let hit = hitIcon(atBarX: x) {
-            entries = hit.id == "trash" ? trashMenu() : itemMenu(hit.id)
+            if DockModel.isWidget(hit.id) {
+                entries = widgetMenu(hit.id)
+            } else {
+                entries = hit.id == "trash" ? trashMenu() : itemMenu(hit.id)
+                target = hit.id
+            }
             centerX = barOriginX + hit.center + fe.shift(at: hit.center)
             top = metrics.padBottom + metrics.dotRow + metrics.icon * fe.scale(at: hit.center)
-            target = hit.id
         } else {
             entries = dockMenu()
             centerX = point.x
@@ -1009,10 +1092,10 @@ final class DockController: DockDragHandler {
     }
 
     /// AI 小组件的菜单；AI 活动小组件多两项：范围、显示内容
-    private func widgetMenu(activity: Bool) -> [DockMenuEntry] {
+    private func widgetMenu(_ token: String?) -> [DockMenuEntry] {
         let settings = settings, store = store
         var entries: [DockMenuEntry] = []
-        if activity {
+        if token == "widget:activity" {
             entries.append(DockMenuEntry(title: L("范围"), submenu: [
                 ActionItem(L("24 小时"), state: settings.activityRange == 0 ? .on : .off) { settings.activityRange = 0 },
                 ActionItem(L("7 天"), state: settings.activityRange == 1 ? .on : .off) { settings.activityRange = 1 },
@@ -1025,6 +1108,11 @@ final class DockController: DockDragHandler {
         }
         entries.append(DockMenuEntry(title: L("立即刷新额度"), action: { store.refreshNow() }))
         entries.append(DockMenuEntry(title: L("AI Dock 设置…"), action: { [weak self] in self?.openSettings() }))
+        // 和 App 一样可以从 Dock 移除（隐藏，可在设置里重新打开）
+        if let token, removable(token) {
+            entries.append(.separator)
+            entries.append(DockMenuEntry(title: DockStrings.s("REMOVE_FROM_DOCK"), action: { [weak self] in self?.removeTile(token) }))
+        }
         return entries
     }
 
@@ -1046,15 +1134,16 @@ final class DockController: DockDragHandler {
     }
 
     /// 拖出 Dock 时的图标：上方带「移除」标签
-    private static func removeImage(icon: NSImage, size: CGFloat) -> NSImage {
+    private static func removeImage(icon: NSImage, size iconSize: NSSize) -> NSImage {
+        let iw = iconSize.width, ih = iconSize.height
         let text = L("移除") as NSString
         let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12, weight: .medium), .foregroundColor: NSColor.white]
         let ts = text.size(withAttributes: attrs)
         let pillW = ts.width + 20, pillH: CGFloat = 22
-        let w = max(size, pillW), h = size + pillH + 6
+        let w = max(iw, pillW), h = ih + pillH + 6
         return NSImage(size: NSSize(width: w, height: h), flipped: false) { _ in
-            icon.draw(in: NSRect(x: (w - size) / 2, y: 0, width: size, height: size))
-            let pill = NSRect(x: (w - pillW) / 2, y: size + 6, width: pillW, height: pillH)
+            icon.draw(in: NSRect(x: (w - iw) / 2, y: 0, width: iw, height: ih))
+            let pill = NSRect(x: (w - pillW) / 2, y: ih + 6, width: pillW, height: pillH)
             NSColor(white: 0.12, alpha: 0.85).setFill()
             NSBezierPath(roundedRect: pill, xRadius: pillH / 2, yRadius: pillH / 2).fill()
             text.draw(at: NSPoint(x: pill.midX - ts.width / 2, y: pill.midY - ts.height / 2), withAttributes: attrs)

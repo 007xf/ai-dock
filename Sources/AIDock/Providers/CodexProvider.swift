@@ -4,7 +4,7 @@ import Foundation
 /// 失败时退回到本地会话日志里最近一次 `token_count` 事件附带的 rate_limits。
 struct CodexProvider {
     static var home: URL {
-        if let env = ProcessInfo.processInfo.environment["CODEX_HOME"] { return URL(fileURLWithPath: env) }
+        if let env = UserEnv.value("CODEX_HOME") { return URL(fileURLWithPath: (env as NSString).expandingTildeInPath) }
         return FileManager.default.home.appendingPathComponent(".codex")
     }
 

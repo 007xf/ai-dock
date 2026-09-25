@@ -27,8 +27,9 @@ AI Dock replaces the system Dock with a look-alike that behaves the same way, th
 **A Dock that behaves like the real one**
 
 - Your apps, running indicators, recent apps and Trash, imported from the system Dock on first launch.
-- Fisheye magnification, name labels, and launch bounce.
+- Fisheye magnification, name labels, and a gravity-style launch bounce.
 - Drag to reorder, drag apps or folders in to add, drag out to remove (with the "poof").
+- **AI widgets are tiles too**: drag them to reorder, or drop them between apps (for example Claude · WeChat · Cursor · QQ). Placed among apps, they take an icon's size and magnify with the icons.
 - Drop files on an app to open them with it, on a folder to move them in, or on the Trash.
 - Context menus match the system Dock's structure, wording (read from the system's own localization files) and callout style: Options ▸ Keep in Dock / Open at Login / Show in Finder, Show All Windows, Hide, Quit. Hold ⌥ for Hide Others / Force Quit.
 - ⌘-click shows the item in Finder. ⌥-click switches to the app and hides the previous one.
@@ -37,9 +38,10 @@ AI Dock replaces the system Dock with a look-alike that behaves the same way, th
 
 **AI widgets**
 
-- **Plan limits** as rings for Claude (Claude Code), ChatGPT / Codex and Cursor: 5-hour and weekly windows with reset times.
+- **Plan limits** as rings for Claude (Claude Code), ChatGPT / Codex, Cursor, Antigravity and Gemini, with reset times. If a quota can't be read (not signed in, app closed, no plan), the widget shows usage time instead of an error, and the details popover explains why.
+- **Status dot on each widget**: a bright dot means the AI is producing output right now, a dim dot means the app or CLI is open, and a hollow ring means it isn't running.
 - **AI activity**: a 24-hour / 7-day bar chart of active time or token usage per tool, parsed from local session logs.
-- **Auto-detection** of 30 AI tools (Claude, ChatGPT, Cursor, Gemini, Copilot, Windsurf, Trae, Kiro, DeepSeek, Kimi, Ollama, LM Studio…). Widgets are generated from what each tool supports.
+- **Auto-detection** of 30 AI tools (Claude, ChatGPT, Cursor, Gemini, Antigravity, Copilot, Windsurf, Trae, Kiro, DeepSeek, Kimi, Ollama, LM Studio…). Widgets are generated from what each tool supports. CLIs are found through your login shell's `PATH` and common install locations (Homebrew, npm, nvm, fnm, Volta, pnpm, Bun, asdf, mise), and `CLAUDE_CONFIG_DIR`, `CODEX_HOME` and `GEMINI_CLI_HOME` are respected.
 - **Local models**: loaded and downloaded models for Ollama and LM Studio.
 - **API balances**: paste any key and the platform is detected from its format. Supported: DeepSeek, Moonshot (Kimi), SiliconFlow, OpenRouter.
 - **Menu bar panel** with the same data, plus a tabbed Settings window.
@@ -56,6 +58,8 @@ AI Dock replaces the system Dock with a look-alike that behaves the same way, th
 |---|---|---|
 | <img src="docs/screenshots/i18n-en-menu.png" width="280"> | <img src="docs/screenshots/dockmenu-light.png" width="170"> | <img src="docs/screenshots/i18n-en-settings-widgets.png" width="280"> |
 
+<img src="docs/screenshots/dock-mixed-light.png" alt="AI widgets placed between apps" width="900">
+
 <img src="docs/screenshots/dock-magnify-dark.png" alt="Magnification" width="900">
 
 *Screenshots are rendered with demo data (`AIDock --render <dir>`).*
@@ -63,7 +67,7 @@ AI Dock replaces the system Dock with a look-alike that behaves the same way, th
 ## Requirements
 
 - macOS 26 (Tahoe) or later on Apple silicon or Intel. It was developed and tested on macOS 27.
-- To show plan limits, the matching tool must be signed in on this Mac: Claude Code, the Codex CLI or ChatGPT app, and Cursor.
+- To show plan limits, the matching tool must be signed in on this Mac: Claude Code, the Codex CLI or ChatGPT app, and Cursor. Antigravity's quota is read while Antigravity is running.
 
 ## Install
 
@@ -96,6 +100,8 @@ Everything runs locally. There is no server, analytics or telemetry.
 | Claude Code | `api.anthropic.com/api/oauth/usage` | Keychain item `Claude Code-credentials` or `~/.claude/.credentials.json` |
 | ChatGPT / Codex | `chatgpt.com/backend-api/wham/usage`; falls back to `rate_limits` in local session logs | `~/.codex/auth.json` |
 | Cursor | `cursor.com/api/usage-summary` (legacy: `/api/usage`) | Cursor's local `state.vscdb`, opened read-only |
+| Antigravity | Antigravity's own local language server on `127.0.0.1` (`RetrieveUserQuotaSummary` / `GetUserStatus`); only while Antigravity is running | The local server's session token, read from its process arguments |
+| Gemini | `cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota` (Gemini Code Assist) | `~/.gemini/oauth_creds.json`. Google no longer offers this quota to personal accounts; they now see their quota in Antigravity |
 
 - **Activity** comes from local session logs in `~/.claude/projects`, `~/.codex/sessions`, `~/.gemini/tmp` and `~/.qwen/tmp`, plus how long each AI app is frontmost (idle time over 5 minutes is excluded). Token counts include cache tokens, so they line up with the official dashboards. Daily totals use your local day, while some dashboards use UTC days.
 - **Token renewal**:
@@ -113,7 +119,7 @@ cd ai-dock
 open "build/AI Dock.app"
 ```
 
-- `swift scripts/make_logos.swift` (optional) extracts sharper brand logos from the apps installed on your Mac into `Resources/Logos`, for your own build. Logos are not included in this repository or in releases; without them AI Dock extracts logos from installed app icons at runtime.
+- `swift scripts/make_logos.swift` regenerates the brand logos in `Resources/Logos` from the official apps installed on your Mac.
 - `"build/AI Dock.app/Contents/MacOS/AIDock" --render /tmp/preview` renders the UI with demo data to PNG files.
 
 ## Uninstall
@@ -138,7 +144,7 @@ open "build/AI Dock.app"
 
 ## Disclaimer
 
-- **Not official.** AI Dock is an independent, unofficial project. It has no affiliation with, and is not endorsed by, Apple Inc., Anthropic PBC, OpenAI, Anysphere Inc. (Cursor), Google LLC, Dockset, or any other company mentioned here. All product names, logos and trademarks belong to their respective owners and are used only to identify the corresponding services.
+- **Not official.** AI Dock is an independent, unofficial project. It has no affiliation with, and is not endorsed by, Apple Inc., Anthropic PBC, OpenAI, Anysphere Inc. (Cursor), Google LLC, Dockset, or any other company mentioned here. All product names, logos and trademarks belong to their respective owners and are used only to identify the corresponding services. If you own one of these marks and want it removed, please open an issue.
 - **Undocumented endpoints.** Plan limits are read from undocumented endpoints used by the official clients, with credentials that already exist on your Mac. These endpoints may change, break, be rate-limited, or be considered outside a provider's terms of service. Check the terms of each service you use. You are solely responsible for how you use this software.
 - **It changes local state.** It can change system Dock preferences (auto-hide and its delay; minimize effect when you choose it), write refreshed OAuth tokens back to their original Keychain item or file, store API keys in your Keychain, and add login items or empty the Trash when you ask it to.
 - **Displayed numbers may be wrong.** Usage, activity and balance figures are best-effort estimates and may differ from the official dashboards. Do not rely on them for billing decisions.

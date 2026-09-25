@@ -1,4 +1,4 @@
-// 从本机已安装的官方 App 中提取三个品牌标志，处理成透明背景 PNG（仅本机自用）
+// 从本机已安装的官方 App 中提取三个品牌标志，处理成透明背景 PNG（输出到 Resources/Logos）
 import AppKit
 
 func bitmap(_ image: NSImage, size: Int) -> NSBitmapImageRep {

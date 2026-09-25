@@ -47,6 +47,20 @@ enum ToolRegistry {
     static func tool(_ id: String) -> DetectedTool? { detected.first { $0.id == id } }
 
     /// 前台 App 的 bundleID → 工具
+    /// 正在运行的工具：它的 App 在运行，或者它的命令行进程在运行
+    static func runningTools() -> Set<String> {
+        var out = Set<String>()
+        for app in NSWorkspace.shared.runningApplications {
+            if let id = toolID(forBundle: app.bundleIdentifier) { out.insert(id) }
+        }
+        var clis: [String: String] = [:]
+        for t in detected { for c in t.def.clis { clis[c] = t.id } }
+        if !clis.isEmpty {
+            for name in ProcessNames.current() { if let id = clis[name] { out.insert(id) } }
+        }
+        return out
+    }
+
     static func toolID(forBundle bundle: String?) -> String? {
         guard let bundle else { return nil }
         return detected.first { $0.bundleIDs.contains(bundle) }?.id
@@ -72,7 +86,7 @@ enum ToolCatalog {
         ToolDef(id: "cursor", name: "Cursor", category: .ide, slot: 2,
                 bundleIDs: ["com.todesktop.230313mzl4w4u92"], clis: ["cursor-agent"], paths: [".cursor"], quota: true, logs: true),
         ToolDef(id: "gemini", name: "Gemini", category: .agent, slot: 6,
-                bundleIDs: ["com.google.GeminiMacOS"], clis: ["gemini"], paths: [".gemini"], logs: true),
+                bundleIDs: ["com.google.GeminiMacOS"], clis: ["gemini"], paths: [".gemini"], quota: true, logs: true),
         ToolDef(id: "qwen", name: "Qwen Code", short: "Qwen", category: .agent, clis: ["qwen"], paths: [".qwen"], logs: true),
         ToolDef(id: "copilot", name: "GitHub Copilot", short: "Copilot", category: .agent,
                 clis: ["copilot"], paths: [".config/github-copilot", ".copilot"]),
@@ -88,7 +102,8 @@ enum ToolCatalog {
         ToolDef(id: "kiro", name: "Kiro", category: .ide, appNames: ["Kiro"], paths: [".kiro"]),
         ToolDef(id: "qoder", name: "Qoder", category: .ide, appNames: ["Qoder"], paths: [".qoder"]),
         ToolDef(id: "codebuddy", name: "CodeBuddy", category: .ide, appNames: ["CodeBuddy", "CodeBuddy CN"], clis: ["codebuddy"], paths: [".codebuddy"]),
-        ToolDef(id: "antigravity", name: "Antigravity", category: .ide, appNames: ["Antigravity"]),
+        ToolDef(id: "antigravity", name: "Antigravity", category: .ide, bundleIDs: ["com.google.antigravity"], appNames: ["Antigravity"],
+                quota: true),
         ToolDef(id: "zed", name: "Zed", category: .ide, bundleIDs: ["dev.zed.Zed"], appNames: ["Zed"]),
         // 聊天应用
         ToolDef(id: "perplexity", name: "Perplexity", category: .chat, bundleIDs: ["ai.perplexity.mac"], appNames: ["Perplexity"]),
@@ -155,14 +170,8 @@ struct DetectedTool: Identifiable, Equatable {
 }
 
 enum ToolDetector {
-    private static var searchDirs: [String] {
-        let home = FileManager.default.home.path
-        var dirs = (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").map(String.init)
-        dirs += ["/opt/homebrew/bin", "/usr/local/bin", "\(home)/.local/bin", "\(home)/.npm-global/bin",
-                 "\(home)/.bun/bin", "\(home)/.volta/bin", "\(home)/.cargo/bin", "\(home)/bin"]
-        var seen = Set<String>()
-        return dirs.filter { seen.insert($0).inserted }
-    }
+    /// 登录 shell 的 PATH + 常见安装位置（nvm、Volta、pnpm、Bun、Homebrew 等），见 UserEnv
+    private static var searchDirs: [String] { UserEnv.binDirs }
 
     static func detect() -> [DetectedTool] {
         let fm = FileManager.default
@@ -316,5 +325,21 @@ enum LogoExtractor {
         let img = NSImage(size: NSSize(width: 64, height: 64))
         img.addRepresentation(rep)
         return img
+    }
+}
+
+/// 当前所有进程的名字（只读进程名，约 1 毫秒）
+enum ProcessNames {
+    static func current() -> Set<String> {
+        let count = proc_listallpids(nil, 0)
+        guard count > 0 else { return [] }
+        var pids = [pid_t](repeating: 0, count: Int(count) + 64)
+        let n = pids.withUnsafeMutableBytes { proc_listallpids($0.baseAddress, Int32($0.count)) }
+        var out = Set<String>()
+        var buf = [CChar](repeating: 0, count: 64)
+        for pid in pids.prefix(Int(max(0, n))) where pid > 0 {
+            if proc_name(pid, &buf, UInt32(buf.count)) > 0 { out.insert(String(cString: buf)) }
+        }
+        return out
     }
 }

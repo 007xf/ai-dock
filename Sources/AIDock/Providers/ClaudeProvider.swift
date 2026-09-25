@@ -19,7 +19,7 @@ struct ClaudeProvider {
 
     static var configDirs: [URL] {
         var dirs: [URL] = []
-        if let env = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"] {
+        if let env = UserEnv.value("CLAUDE_CONFIG_DIR") {
             dirs += env.split(separator: ",").map { URL(fileURLWithPath: String($0)) }
         }
         dirs.append(FileManager.default.home.appendingPathComponent(".claude"))

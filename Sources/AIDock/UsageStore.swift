@@ -1,5 +1,8 @@
 import SwiftUI
 import Combine
+import os
+
+private let usageLog = Logger(subsystem: "local.aidock.app", category: "usage")
 
 enum WidgetStyle: String, CaseIterable, Identifiable {
     case auto, full, compact
@@ -152,6 +155,12 @@ final class UsageStore: ObservableObject {
             }
             .sink { [weak self] _ in self?.redetect() }
             .store(in: &bag)
+        // App 启动 / 退出：更新「打开了没」
+        Publishers.MergeMany(ws.publisher(for: NSWorkspace.didLaunchApplicationNotification),
+                             ws.publisher(for: NSWorkspace.didTerminateApplicationNotification))
+            .debounce(for: .milliseconds(400), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in self?.updateRunning() }
+            .store(in: &bag)
         // 使用时长：只在切换 App 时记一笔，不轮询
         ws.publisher(for: NSWorkspace.didActivateApplicationNotification)
             .sink { [weak self] n in self?.setFront(n.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication) }
@@ -168,10 +177,16 @@ final class UsageStore: ObservableObject {
 
     func start() {
         detectTools()
+        // 读一次登录 shell 的环境（PATH、配置目录）；和缓存不同就重新检测
+        Task { [weak self] in
+            if await UserEnv.refresh() { self?.redetect() }
+        }
         restartUsageLoop()
         setFront(NSWorkspace.shared.frontmostApplication)
+        let runningIDs = ToolRegistry.runningTools()
         Task { [weak self] in
             guard let self else { return }
+            await self.scanner.setRunning(runningIDs)
             let snap = await self.scanner.initialScan()
             self.apply(snap)
             self.startWatching()
@@ -182,6 +197,8 @@ final class UsageStore: ObservableObject {
                 try? await Task.sleep(for: .seconds(30), tolerance: .seconds(15))
                 guard let self, !self.asleep else { continue }
                 self.flushFront()
+                // 命令行工具没有启动 / 退出通知，跟着这次定时检查一起看
+                await self.scanner.setRunning(ToolRegistry.runningTools())
                 self.apply(await self.scanner.tick())
             }
         }
@@ -243,6 +260,15 @@ final class UsageStore: ObservableObject {
         }
     }
 
+    private func updateRunning() {
+        let ids = ToolRegistry.runningTools()
+        Task { [weak self] in
+            guard let self else { return }
+            await self.scanner.setRunning(ids)
+            self.apply(await self.scanner.tick())
+        }
+    }
+
     private func tickNow() {
         Task { [weak self] in
             guard let self else { return }
@@ -279,6 +305,8 @@ final class UsageStore: ObservableObject {
         case "claude": return await ClaudeProvider().fetch()
         case "codex": return await CodexProvider().fetch()
         case "cursor": return await CursorProvider().fetch()
+        case "gemini": return await GeminiProvider().fetch()
+        case "antigravity": return await AntigravityProvider().fetch()
         default: return ProviderUsage(provider: p)
         }
     }
@@ -296,6 +324,7 @@ final class UsageStore: ObservableObject {
             return out
         }
         for r in results {
+            usageLog.debug("\(r.provider.id, privacy: .public): \(r.windows.count) windows \(r.windows.map { "\($0.short)=\(Int($0.usedPercent))%" }.joined(separator: " "), privacy: .public) plan=\(r.plan ?? "-", privacy: .public) error=\(r.error ?? "-", privacy: .public)")
             // 刷新失败时保留上一次成功的数据，只标记为过期
             if r.windows.isEmpty, r.error != nil, var old = usages[r.provider], !old.windows.isEmpty {
                 old.error = r.error

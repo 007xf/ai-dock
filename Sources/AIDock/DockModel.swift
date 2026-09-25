@@ -14,7 +14,16 @@ final class DockModel: ObservableObject {
         let kind: Kind
     }
 
-    @Published private(set) var pinned: [Item] = []
+    /// 固定区的排列顺序：App（文件路径）和插在 App 之间的小组件（"widget:…"）
+    @Published private(set) var order: [String] = []
+    /// 废纸篓右边的小组件顺序（没拖进固定区的小组件都在这里）
+    @Published private(set) var tailOrder: [String] = UserDefaults.standard.stringArray(forKey: "dockWidgetTail") ?? []
+    private var items: [String: Item] = [:]
+
+    /// 固定的 App（不含小组件）
+    var pinned: [Item] { order.compactMap { items[$0] } }
+
+    static func isWidget(_ id: String) -> Bool { id.hasPrefix("widget:") }
     /// 正在运行但没有固定的 App，以及系统 Dock 的「最近使用的 App」
     @Published private(set) var extraRunning: [Item] = []
     /// 系统 Dock 设置里的「显示已打开的应用程序的指示灯」
@@ -33,12 +42,13 @@ final class DockModel: ObservableObject {
 
     init(demo: [String]? = nil) {
         if let demo {
-            pinned = demo.compactMap { Self.item(path: $0) }
+            // 预览用：可以混入小组件（"widget:…"），不写入设置
+            setOrder(demo.compactMap { Self.isWidget($0) ? .widget($0) : Self.item(path: $0).map { .app($0) } })
             running = Set(pinned.prefix(3).map(\.id))
             return
         }
         if let saved = UserDefaults.standard.stringArray(forKey: defaultsKey) {
-            pinned = saved.compactMap { Self.item(path: $0, allowMissing: true) }
+            setOrder(saved.compactMap { s in Self.isWidget(s) ? .widget(s) : Self.item(path: s, allowMissing: true).map { .app($0) } })
         } else {
             importFromSystemDock()
         }
@@ -74,13 +84,27 @@ final class DockModel: ObservableObject {
                 }
             }
         }
-        pinned = paths.filter { $0 != finderPath }.compactMap { Self.item(path: $0, allowMissing: true) }
+        setOrder(paths.filter { $0 != finderPath }.compactMap { Self.item(path: $0, allowMissing: true) }.map { .app($0) })
         save()
         refreshRunning()
     }
 
+    private enum Entry { case app(Item), widget(String) }
+
+    private func setOrder(_ entries: [Entry]) {
+        var ids: [String] = []
+        for e in entries {
+            switch e {
+            case .app(let it): items[it.id] = it; if !ids.contains(it.id) { ids.append(it.id) }
+            case .widget(let w): if !ids.contains(w) { ids.append(w) }
+            }
+        }
+        order = ids
+    }
+
     private func save() {
-        UserDefaults.standard.set(pinned.map(\.id), forKey: defaultsKey)
+        UserDefaults.standard.set(order, forKey: defaultsKey)
+        UserDefaults.standard.set(tailOrder, forKey: "dockWidgetTail")
     }
 
     private static func item(path: String, allowMissing: Bool = false) -> Item? {
@@ -247,10 +271,10 @@ final class DockModel: ObservableObject {
         NSWorkspace.shared.open(FileManager.default.home.appendingPathComponent(".Trash"))
     }
 
-    func isPinned(_ item: Item) -> Bool { pinned.contains { $0.id == item.id } }
+    func isPinned(_ item: Item) -> Bool { items[item.id] != nil && order.contains(item.id) }
 
     func togglePin(_ item: Item) {
-        if isPinned(item) { pinned.removeAll { $0.id == item.id } } else { pinned.append(item) }
+        if isPinned(item) { order.removeAll { $0 == item.id } } else { items[item.id] = item; order.append(item.id) }
         save()
         refreshRunning()
     }
@@ -261,10 +285,16 @@ final class DockModel: ObservableObject {
         ([finder].compactMap { $0 } + pinned + extraRunning).first { $0.id == id }
     }
 
+    /// index：在「去掉被拖项目后的固定区」里的位置（App 和小组件一起算）
     func move(_ id: String, to index: Int) {
-        if let from = pinned.firstIndex(where: { $0.id == id }) {
-            let it = pinned.remove(at: from)
-            pinned.insert(it, at: min(max(0, index), pinned.count))
+        if Self.isWidget(id) {
+            tailOrder.removeAll { $0 == id }
+            order.removeAll { $0 == id }
+            order.insert(id, at: min(max(0, index), order.count))
+            save()
+        } else if let from = order.firstIndex(of: id) {
+            order.remove(at: from)
+            order.insert(id, at: min(max(0, index), order.count))
             save()
         } else if let it = extraRunning.first(where: { $0.id == id }) {
             // 把正在运行但没固定的 App 拖进固定区 = 在 Dock 中保留
@@ -274,14 +304,25 @@ final class DockModel: ObservableObject {
 
     func insert(_ url: URL, at index: Int) {
         guard let it = Self.item(path: url.path), it.id != finder?.id else { return }
-        if let i = pinned.firstIndex(where: { $0.id == it.id }) { pinned.remove(at: i) }
-        pinned.insert(it, at: min(max(0, index), pinned.count))
+        items[it.id] = it
+        order.removeAll { $0 == it.id }
+        order.insert(it.id, at: min(max(0, index), order.count))
         save()
         refreshRunning()
     }
 
+    /// 把小组件放到废纸篓右边的某个位置（index 按去掉它之后的顺序算）；tokens 是当前显示在那里的小组件
+    func moveWidgetToTail(_ id: String, at index: Int, current tokens: [String]) {
+        order.removeAll { $0 == id }
+        var list = tokens.filter { $0 != id }
+        list.insert(id, at: min(max(0, index), list.count))
+        // 记下完整顺序（包括暂时没显示的小组件，保持它们原来的相对位置）
+        tailOrder = list + tailOrder.filter { !list.contains($0) }
+        save()
+    }
+
     func remove(_ id: String) {
-        pinned.removeAll { $0.id == id }
+        order.removeAll { $0 == id }
         save()
         refreshRunning()
     }

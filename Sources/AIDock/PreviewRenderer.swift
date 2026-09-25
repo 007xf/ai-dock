@@ -41,6 +41,20 @@ enum PreviewRenderer {
         }
         Loc.apply(.zhHans)
 
+        // 小组件插在 App 之间（Claude、微信、Cursor 这样混排），鼠标停在 Claude 圆环上
+        let mixed = DockModel(demo: ["/Applications/Safari.app", "widget:claude", "/Applications/WeChat.app", "widget:cursor",
+                                     "/Applications/Google Chrome.app", "/System/Applications/System Settings.app"])
+        for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+            let mm = DockMetrics(icon: 54, widgetsCompact: false, magnify: true, magnification: 1.5)
+            let ui2 = DockUIState()
+            ui2.revealed = true
+            render(DockView(model: mixed, store: store, settings: settings, ui: ui2, metrics: mm),
+                   appearance: appearance, to: dir.appendingPathComponent("dock-mixed-\(name).png"))
+            ui2.pointerX = mm.padH + 2 * (mm.icon + mm.spacing) + mm.icon / 2
+            render(DockView(model: mixed, store: store, settings: settings, ui: ui2, metrics: mm),
+                   appearance: appearance, to: dir.appendingPathComponent("dock-mixed-magnify-\(name).png"))
+        }
+
         // Dock 菜单（系统 Dock 样式）
         for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
             let entries = [DockMenuEntry(title: DockStrings.s("OPTIONS"), submenu: []), .separator,
@@ -194,8 +208,8 @@ extension UsageStore {
         }
         var snap = ActivitySnapshot(hours: hours, days: days)
         snap.live = [
-            .claude: LiveStatus(lastActive: now, lastOutput: now, sessions: 2, installed: true),
-            .codex: LiveStatus(lastActive: now.addingTimeInterval(-6 * 60), sessions: 0, installed: true),
+            .claude: LiveStatus(lastActive: now, lastOutput: now, sessions: 2, installed: true, running: true),
+            .codex: LiveStatus(lastActive: now.addingTimeInterval(-6 * 60), sessions: 0, installed: true, running: true),
             .cursor: LiveStatus(lastActive: now.addingTimeInterval(-3 * 3600), sessions: 0, installed: true),
         ]
         snap.states = snap.live.mapValues { $0.state() }
