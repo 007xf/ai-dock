@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key><string>zh_CN</string>
+    <key>CFBundleExecutable</key><string>AIDock</string>
+    <key>CFBundleIdentifier</key><string>local.aidock.app</string>
+    <key>CFBundleName</key><string>AI Dock</string>
+    <key>CFBundleDisplayName</key><string>AI Dock</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleShortVersionString</key><string>1.0.0</string>
+    <key>CFBundleVersion</key><string>1</string>
+    <key>CFBundleIconFile</key><string>AppIcon</string>
+    <key>LSMinimumSystemVersion</key><string>14.0</string>
+    <key>LSUIElement</key><true/>
+    <key>NSSupportsAutomaticTermination</key><false/>
+    <key>NSSupportsSuddenTermination</key><false/>
+    <key>NSHighResolutionCapable</key><true/>
+    <key>NSAppleEventsUsageDescription</key><string>AI Dock 需要通过“访达”清倒废纸篓，并通过“系统事件”设置 App 的“登录时打开”。</string>
+</dict>
+</plist>
