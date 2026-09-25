@@ -176,6 +176,8 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private let popover = NSPopover()
     private let makeContent: (CGFloat?) -> MenuContentView
+    /// 弹窗打开时再点一次图标：按下鼠标时弹窗已经因为「点到外面」先关掉了，松开时按钮动作不应再把它打开
+    private var closedByIconAt: Date?
 
     var visible: Bool {
         get { item.isVisible }
@@ -197,6 +199,10 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
 
     @objc private func toggle() {
         guard let button = item.button else { return }
+        if let t = closedByIconAt {
+            closedByIconAt = nil
+            if Date().timeIntervalSince(t) < 1 { return }
+        }
         if popover.isShown {
             popover.performClose(nil)
         } else {
@@ -215,6 +221,14 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
             Focus.borrow()
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             hc.view.window?.makeFirstResponder(nil)
+        }
+    }
+
+    func popoverWillClose(_ notification: Notification) {
+        // 这次关闭是不是由点按菜单栏图标引起的
+        if let ev = NSApp.currentEvent, [.leftMouseDown, .rightMouseDown].contains(ev.type),
+           let w = item.button?.window, ev.window === w {
+            closedByIconAt = Date()
         }
     }
 
