@@ -450,7 +450,9 @@ struct AppIconView: View {
                 } else {
                     icon
                 }
-                Circle().fill(Color.primary.opacity(running && model.showIndicators ? 0.85 : 0))
+                // 主程序已退出、子进程还在后台运行的 App：指示灯半透明（和系统 Dock 一样）
+                Circle().fill(Color.primary.opacity(!model.showIndicators ? 0 : running ? 0.85
+                                                    : model.lingering[item.id] != nil ? 0.35 : 0))
                     .frame(width: 4, height: 4)
                     .frame(height: metrics.dotRow)
             }
@@ -543,8 +545,16 @@ struct ProviderWidget: View {
 
     @StateObject private var showDetail = Box(false)
 
+    /// 圆环只有两圈：窗口多于两个时（Cursor、Antigravity）显示用得最多的两个，保持原来的先后顺序
+    private var shownWindows: [UsageWindow] {
+        let all = usage?.windows ?? []
+        guard all.count > 2 else { return all }
+        return all.enumerated().sorted { $0.element.usedPercent > $1.element.usedPercent }
+            .prefix(2).sorted { $0.offset < $1.offset }.map(\.element)
+    }
+
     var body: some View {
-        let ws = usage?.windows ?? []
+        let ws = shownWindows
         let ring = metrics.icon * 0.92
         let id = "w-\(provider.rawValue)"
         Button {
@@ -579,7 +589,7 @@ struct ProviderWidget: View {
                                 .monospacedDigit()
                             }
                         }
-                        .frame(width: 66, alignment: .leading)
+                        .frame(width: ws.contains { L($0.short).count > 5 } ? 96 : 66, alignment: .leading)
                     }
                 }
                 .frame(height: metrics.icon)

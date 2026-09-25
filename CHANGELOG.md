@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.1.1] - 2026-09-25
+
+### Fixed / 修复
+- Menu bar panel: clicking the icon again closes it, choosing Settings… closes it too, and buttons respond to the first click.
+  菜单栏面板：再次点击图标会收起；点「设置…」后面板也会收起；按钮第一下点击就有反应。
+- Antigravity 2.x quota: the local language server was renamed, so AI Dock couldn't find it. The weekly limits are now read as well.
+  Antigravity 2.x 的额度：新版本地服务改了名字，之前找不到；现在也能读到每周限额。
+- Gemini CLI running state: the CLI runs as a node process and is now recognized from its script path.
+  Gemini 命令行的运行状态：它以 node 进程运行，现在按脚本路径识别。
+
+### Added / 新增
+- Apps that have quit but still have processes running in the background (for example Cursor's agent) get a dimmed indicator dot, like the system Dock.
+  已经退出、但还有子进程在后台运行的 App（比如 Cursor 的 agent），指示灯显示为半透明，和系统 Dock 一样。
+
+### Changed / 改进
+- The last plan limits read stay on screen when the tool is closed or offline, and windows past their reset time show as reset.
+  工具关闭或暂时连不上时，继续显示上次读到的额度；过了重置时间的按已重置显示。
+- Gemini: Google moved the quota of personal accounts to Antigravity, so the Gemini widget shows the Gemini models quota from Antigravity (same Google account only).
+  Gemini：Google 已把个人账号的额度移到 Antigravity，Gemini 小组件改为显示 Antigravity 中 Gemini 模型的额度（仅限同一个 Google 账号）。
+- Antigravity "working" status comes from its conversation files being written.
+  Antigravity 的「工作中」状态来自它的会话文件写入。
+- Widgets with more than two limits show the two most-used ones as rings.
+  额度超过两项的小组件，圆环显示用得最多的两项。
+
 ## [1.1.0] - 2026-09-25
 
 ### Added / 新增

@@ -145,6 +145,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func openSettingsAction(_ sender: Any?) { openSettings() }
 
     func openSettings() {
+        statusItem?.close()
         if settingsWindow == nil {
             let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 440, height: 600),
                              styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
@@ -198,49 +199,84 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         popover.delegate = self
     }
 
+    /// 被「点在面板外面」关掉的时间：同一下点击如果点在菜单栏图标上，按钮随后还会触发一次 toggle，不能再把面板打开
+    private var closedByClickAt: TimeInterval = -1
+
     @objc private func toggle() {
         guard let button = item.button else { return }
         if popover.isShown {
-            popover.performClose(nil)
+            close()
             return
         }
+        if ProcessInfo.processInfo.systemUptime - closedByClickAt < 0.5 { return }
         // 打开时才创建界面，关闭后释放，平时不占内存。
         // 先量好尺寸再固定：内容比屏幕高时中间改成滚动，避免面板被推出屏幕顶部
         let maxH = ((button.window?.screen ?? NSScreen.main)?.visibleFrame.height ?? 800) - 40
-        let hc = NSHostingController(rootView: makeContent(nil))
-        hc.sizingOptions = []
-        var size = hc.sizeThatFits(in: CGSize(width: 320, height: 10_000))
-        if size.height > maxH {
-            hc.rootView = makeContent(maxH)
-            size.height = maxH
-        }
+        var size = NSHostingController(rootView: makeContent(nil)).sizeThatFits(in: CGSize(width: 320, height: 10_000))
+        let host = FirstMouseHostingView(rootView: makeContent(size.height > maxH ? maxH : nil))
+        size.height = min(size.height, maxH)
+        host.sizingOptions = []
+        host.frame = NSRect(origin: .zero, size: size)
+        let vc = NSViewController()
+        vc.view = host
         popover.contentSize = size
-        popover.contentViewController = hc
+        popover.contentViewController = vc
         Focus.borrow()
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        hc.view.window?.makeFirstResponder(nil)
+        host.window?.makeKey()
+        host.window?.makeFirstResponder(nil)
         installMonitors()
+    }
+
+    /// 关闭面板（打开设置窗口等操作也会调用）
+    func close() {
+        guard popover.isShown else { return }
+        popover.close()
+        cleanUp()
+    }
+
+    /// 这次点击是不是点在菜单栏图标上。
+    /// 新版 macOS 的菜单栏图标可能由别的窗口（多个显示器上的副本）接收点击，不能只比较窗口，按屏幕位置判断
+    private func isOnButton(_ event: NSEvent?) -> Bool {
+        guard let button = item.button, let window = button.window else { return false }
+        if let w = event?.window, w === window { return true }
+        let rect = window.convertToScreen(button.convert(button.bounds, to: nil)).insetBy(dx: -2, dy: -2)
+        let p = NSEvent.mouseLocation
+        if rect.contains(p) { return true }
+        // 其他显示器上的菜单栏：图标靠右排列，按离屏幕右边缘的距离对应
+        guard let home = window.screen else { return false }
+        let right = (min: home.frame.maxX - rect.maxX, max: home.frame.maxX - rect.minX)
+        return NSScreen.screens.contains { s in
+            s != home && s.frame.contains(p) && p.y >= s.visibleFrame.maxY - 1
+                && (right.min...right.max).contains(s.frame.maxX - p.x)
+        }
+    }
+
+    private func closeFromOutside() {
+        guard popover.isShown else { return }
+        closedByClickAt = ProcessInfo.processInfo.systemUptime
+        close()
     }
 
     private func installMonitors() {
         removeMonitors()
-        // 点到本 App 的其他窗口（Dock、设置窗口）：关闭；点面板自己或菜单栏图标：不管
+        // 面板开着时点菜单栏图标：自己关掉，并拦下这次点击，按钮就不会再把面板打开。
+        // 点到本 App 的其他窗口（Dock、设置窗口）：关闭；点面板自己：不管
         if let m = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown], handler: { [weak self] ev in
             guard let self, self.popover.isShown else { return ev }
-            let w = ev.window
-            if w !== self.item.button?.window, w !== self.popover.contentViewController?.view.window {
-                self.popover.performClose(nil)
-            }
-            return ev
+            if ev.window === self.popover.contentViewController?.view.window { return ev }
+            let onButton = self.isOnButton(ev)
+            self.closeFromOutside()
+            return onButton ? nil : ev
         }) { monitors.append(m) }
-        // 点到其他 App：关闭
+        // 点到其他 App（包括由系统转交的菜单栏点击）：关闭；紧接着按钮的 toggle 会被忽略
         if let m = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown], handler: { [weak self] _ in
-            MainActor.assumeIsolated { self?.popover.performClose(nil) }
+            MainActor.assumeIsolated { self?.closeFromOutside() }
         }) { monitors.append(m) }
         // Esc 关闭
         if let m = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { [weak self] ev in
             guard let self, self.popover.isShown, ev.keyCode == 53 else { return ev }
-            self.popover.performClose(nil)
+            self.close()
             return nil
         }) { monitors.append(m) }
     }
@@ -250,11 +286,20 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         monitors = []
     }
 
-    func popoverDidClose(_ notification: Notification) {
+    private func cleanUp() {
         removeMonitors()
         popover.contentViewController = nil
         Focus.giveBack()
     }
+
+    func popoverDidClose(_ notification: Notification) {
+        if popover.contentViewController != nil { cleanUp() }
+    }
+}
+
+/// 面板还不是活动窗口时，第一下点击也直接按到按钮上（否则第一下只会激活面板，看起来像点不动）
+final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
 // MARK: - 窗口

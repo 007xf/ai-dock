@@ -11,7 +11,8 @@ enum Focus {
         if !NSApp.isActive, let front = NSWorkspace.shared.frontmostApplication, front.processIdentifier != getpid() {
             previous = front
         }
-        NSApp.activate(ignoringOtherApps: true)
+        // 新版系统里旧的 activate(ignoringOtherApps:) 可能不生效，用新的接口
+        NSApp.activate()
     }
 
     /// 屏幕上还有 AI Dock 的弹窗吗（Dock 小组件详情、菜单栏面板）

@@ -68,6 +68,8 @@ struct ProviderUsage: Equatable {
     var note: String?
     /// 本次刷新失败，展示的是上一次成功的数据
     var stale = false
+    /// 额度已经不在这个工具里了（Gemini 个人账号的额度移到了 Antigravity）
+    var quotaMoved = false
 
     init(provider: Provider) { self.provider = provider }
 

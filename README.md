@@ -26,7 +26,7 @@ AI Dock replaces the system Dock with a look-alike that behaves the same way, th
 
 **A Dock that behaves like the real one**
 
-- Your apps, running indicators, recent apps and Trash, imported from the system Dock on first launch.
+- Your apps, running indicators, recent apps and Trash, imported from the system Dock on first launch. Apps that have quit but still have background processes running get a dimmed dot, as in the system Dock.
 - Fisheye magnification, name labels, and a gravity-style launch bounce.
 - Drag to reorder, drag apps or folders in to add, drag out to remove (with the "poof").
 - **AI widgets are tiles too**: drag them to reorder, or drop them between apps (for example Claude · WeChat · Cursor · QQ). Placed among apps, they take an icon's size and magnify with the icons.
@@ -67,7 +67,7 @@ AI Dock replaces the system Dock with a look-alike that behaves the same way, th
 ## Requirements
 
 - macOS 26 (Tahoe) or later on Apple silicon or Intel. It was developed and tested on macOS 27.
-- To show plan limits, the matching tool must be signed in on this Mac: Claude Code, the Codex CLI or ChatGPT app, and Cursor. Antigravity's quota is read while Antigravity is running.
+- To show plan limits, the matching tool must be signed in on this Mac: Claude Code, the Codex CLI or ChatGPT app, and Cursor. Antigravity's quota is read while Antigravity is running, and the last reading is kept after you quit it.
 
 ## Install
 
@@ -100,8 +100,8 @@ Everything runs locally. There is no server, analytics or telemetry.
 | Claude Code | `api.anthropic.com/api/oauth/usage` | Keychain item `Claude Code-credentials` or `~/.claude/.credentials.json` |
 | ChatGPT / Codex | `chatgpt.com/backend-api/wham/usage`; falls back to `rate_limits` in local session logs | `~/.codex/auth.json` |
 | Cursor | `cursor.com/api/usage-summary` (legacy: `/api/usage`) | Cursor's local `state.vscdb`, opened read-only |
-| Antigravity | Antigravity's own local language server on `127.0.0.1` (`RetrieveUserQuotaSummary` / `GetUserStatus`); only while Antigravity is running | The local server's session token, read from its process arguments |
-| Gemini | `cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota` (Gemini Code Assist) | `~/.gemini/oauth_creds.json`. Google no longer offers this quota to personal accounts; they now see their quota in Antigravity |
+| Antigravity | Antigravity's own local language server on `127.0.0.1` (`RetrieveUserQuotaSummary` / `GetUserStatus`). It can only be read while Antigravity is running; after you quit it, the last reading stays on screen | The local server's session token, read from its process arguments |
+| Gemini | `cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota` (Gemini Code Assist) | `~/.gemini/oauth_creds.json`. Google no longer offers this quota to personal accounts. For them, the Gemini widget shows the Gemini models quota from Antigravity (same Google account only) |
 
 - **Activity** comes from local session logs in `~/.claude/projects`, `~/.codex/sessions`, `~/.gemini/tmp` and `~/.qwen/tmp`, plus how long each AI app is frontmost (idle time over 5 minutes is excluded). Token counts include cache tokens, so they line up with the official dashboards. Daily totals use your local day, while some dashboards use UTC days.
 - **Token renewal**:
@@ -115,7 +115,7 @@ Xcode Command Line Tools are enough; full Xcode is not required.
 ```bash
 git clone https://github.com/007xf/ai-dock.git
 cd ai-dock
-./build.sh                      # → build/AI Dock.app
+./build.sh                      # → build/AI Dock.app (set AIDOCK_OUT=build.noindex to keep Spotlight from listing the copy)
 open "build/AI Dock.app"
 ```
 

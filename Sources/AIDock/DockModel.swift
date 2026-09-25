@@ -29,6 +29,9 @@ final class DockModel: ObservableObject {
     /// 系统 Dock 设置里的「显示已打开的应用程序的指示灯」
     @Published private(set) var showIndicators = SystemDock.showsIndicators
     @Published private(set) var running: Set<String> = []
+    /// 主程序已退出、子进程还在运行的 App（路径 → 原来的进程号），指示灯画成半透明
+    @Published private(set) var lingering: [String: pid_t] = [:]
+    private var lingerWatch: Timer?
     @Published private(set) var trashFull = false
     /// 正在启动的 App（图标跳动，直到启动完成）
     @Published private(set) var launching: Set<String> = []
@@ -63,6 +66,23 @@ final class DockModel: ObservableObject {
         .debounce(for: .milliseconds(150), scheduler: DispatchQueue.main)
         .sink { [weak self] _ in self?.refreshRunning() }
         .store(in: &bag)
+        // App 退出后如果子进程还在（系统记为 exited-with-subordinates），指示灯变成半透明
+        nc.publisher(for: NSWorkspace.didTerminateApplicationNotification)
+            .compactMap { $0.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication }
+            .delay(for: .milliseconds(500), scheduler: DispatchQueue.main)
+            .sink { [weak self] app in
+                guard let self, let path = app.bundleURL?.resolvingSymlinksInPath().path,
+                      LingeringApps.isLingering(pid: app.processIdentifier) else { return }
+                self.lingering[path] = app.processIdentifier
+                self.refreshRunning()
+            }
+            .store(in: &bag)
+        Task { [weak self] in
+            let found = await LingeringApps.scan()
+            guard let self, !found.isEmpty else { return }
+            self.lingering.merge(found) { a, _ in a }
+            self.refreshRunning()
+        }
     }
 
     private(set) lazy var finder: Item? = Self.item(path: finderPath)
@@ -130,12 +150,15 @@ final class DockModel: ObservableObject {
         let paths = apps.compactMap { $0.bundleURL?.resolvingSymlinksInPath().path }
         let set = Set(paths)
         if set != running { running = set }
+        // 重新打开了：不再算「已退出」
+        for p in lingering.keys where set.contains(p) { lingering[p] = nil }
         if !dismissedRecents.isDisjoint(with: set) {
             dismissedRecents.subtract(set)
             UserDefaults.standard.set(Array(dismissedRecents), forKey: "dismissedRecents")
         }
         let known = Set(pinned.map(\.id)).union([finder?.id ?? finderPath])
         var extraPaths = paths.filter { !known.contains($0) }
+        for p in lingering.keys.sorted() where !known.contains(p) && !extraPaths.contains(p) { extraPaths.append(p) }
         for p in Self.recentPaths() where !known.contains(p) && !extraPaths.contains(p) && !dismissedRecents.contains(p) {
             extraPaths.append(p)
         }
@@ -144,6 +167,29 @@ final class DockModel: ObservableObject {
         if !launching.isDisjoint(with: set) { launching.subtract(set) }
         let indicators = SystemDock.showsIndicators
         if indicators != showIndicators { showIndicators = indicators }
+        updateLingerWatch()
+    }
+
+    /// 子进程全部结束（或 App 重新打开）后去掉半透明指示灯：有这种 App 时每 5 秒查一次，没有就不查
+    private func updateLingerWatch() {
+        if lingering.isEmpty {
+            lingerWatch?.invalidate()
+            lingerWatch = nil
+            return
+        }
+        guard lingerWatch == nil else { return }
+        let t = Timer(timeInterval: 5, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let gone = self.lingering.filter { !LingeringApps.isLingering(pid: $0.value) }.map(\.key)
+                guard !gone.isEmpty else { return }
+                for p in gone { self.lingering[p] = nil }
+                self.refreshRunning()
+            }
+        }
+        t.tolerance = 2
+        RunLoop.main.add(t, forMode: .common)
+        lingerWatch = t
     }
 
     /// 系统 Dock 记录的「最近使用的 App」（系统设置里打开了「在程序坞中显示建议和最近使用的 App」时才显示）

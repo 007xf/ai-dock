@@ -88,10 +88,11 @@ struct AntigravityProvider {
             let group = groupName(g["displayName"] as? String ?? "")
             var windows: [UsageWindow] = []
             for b in g["buckets"] as? [[String: Any]] ?? [] where (b["disabled"] as? Bool) != true {
-                let name = "\(b["bucketId"] as? String ?? "") \(b["displayName"] as? String ?? "")".lowercased()
+                // window 是 "weekly" / "5h"；旧版本没有这个字段，只能看名字
+                let name = "\(b["window"] as? String ?? "") \(b["bucketId"] as? String ?? "") \(b["displayName"] as? String ?? "")".lowercased()
                 let weekly = name.contains("week")
                 guard weekly || name.contains("5h") || name.contains("5-hour") || name.contains("five") || name.contains("session"),
-                      let f = fraction(b["remaining"]) else { continue }
+                      let f = jnum(b["remainingFraction"]) ?? fraction(b["remaining"]) else { continue }
                 windows.append(window(group: group, weekly: weekly, remaining: f, reset: resetDate(b["resetTime"])))
             }
             out += windows.sorted { !$0.id.hasSuffix("week") && $1.id.hasSuffix("week") }
@@ -135,7 +136,8 @@ struct AntigravityProvider {
         let lines = String(decoding: out, as: UTF8.self).split(separator: "\n")
         for line in lines {
             let s = line.trimmingCharacters(in: .whitespaces)
-            guard s.contains("language_server_macos"), s.lowercased().contains("antigravity"),
+            // 旧版叫 language_server_macos(_arm)，2.x 起是 App 里的 Resources/bin/language_server
+            guard s.contains("language_server"), s.lowercased().contains("antigravity"),
                   let space = s.firstIndex(of: " "), let pid = Int32(s[..<space]) else { continue }
             let cmd = String(s[space...])
             guard let csrf = match(#"--csrf_token[=\s]+"?([A-Za-z0-9-]+)"#, cmd) else { continue }

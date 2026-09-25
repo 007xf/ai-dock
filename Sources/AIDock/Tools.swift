@@ -328,8 +328,14 @@ enum LogoExtractor {
     }
 }
 
-/// 当前所有进程的名字（只读进程名，约 1 毫秒）
+/// 当前所有进程的名字（只读进程名，约 1 毫秒）。
+/// 用 node / bun / python 运行的命令行工具（gemini、qwen 等），进程名是解释器，再看一眼它运行的脚本路径
 enum ProcessNames {
+    private static let interpreters: Set<String> = ["node", "bun", "deno", "ruby", "python", "python3"]
+    /// 按进程号缓存脚本名，进程还在就不再重复读取
+    nonisolated(unsafe) private static var scripts: [pid_t: [String]] = [:]
+    private static let lock = NSLock()
+
     static func current() -> Set<String> {
         let count = proc_listallpids(nil, 0)
         guard count > 0 else { return [] }
@@ -337,8 +343,57 @@ enum ProcessNames {
         let n = pids.withUnsafeMutableBytes { proc_listallpids($0.baseAddress, Int32($0.count)) }
         var out = Set<String>()
         var buf = [CChar](repeating: 0, count: 64)
+        var alive = Set<pid_t>()
+        lock.lock(); defer { lock.unlock() }
         for pid in pids.prefix(Int(max(0, n))) where pid > 0 {
-            if proc_name(pid, &buf, UInt32(buf.count)) > 0 { out.insert(String(cString: buf)) }
+            guard proc_name(pid, &buf, UInt32(buf.count)) > 0 else { continue }
+            let name = String(cString: buf)
+            out.insert(name)
+            guard interpreters.contains(name) || name.hasPrefix("python") else { continue }
+            alive.insert(pid)
+            if scripts[pid] == nil { scripts[pid] = scriptNames(pid) }
+            out.formUnion(scripts[pid] ?? [])
+        }
+        scripts = scripts.filter { alive.contains($0.key) }
+        return out
+    }
+
+    /// 脚本路径对应的命令名：…/bin/gemini → gemini；…/node_modules/@google/gemini-cli/bundle/gemini.js → gemini、gemini-cli
+    static func scriptNames(_ pid: pid_t) -> [String] {
+        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
+        var size = 0
+        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > 8 else { return [] }
+        var raw = [UInt8](repeating: 0, count: size)
+        guard sysctl(&mib, 3, &raw, &size, nil, 0) == 0, size > 8 else { return [] }
+        let argc = raw.withUnsafeBytes { Int($0.load(as: Int32.self)) }
+        // 结构：argc，可执行文件路径，补齐的 0，然后是 argv
+        var i = 4
+        while i < size, raw[i] != 0 { i += 1 }
+        while i < size, raw[i] == 0 { i += 1 }
+        var args: [String] = []
+        while args.count < min(argc, 3), i < size {
+            var j = i
+            while j < size, raw[j] != 0 { j += 1 }
+            args.append(String(decoding: raw[i..<j], as: UTF8.self))
+            i = j + 1
+        }
+        return names(fromArgs: args)
+    }
+
+    static func names(fromArgs args: [String]) -> [String] {
+        var out: [String] = []
+        // argv[0] 是解释器本身；只看后面的脚本（跳过 --inspect 之类的选项）
+        for arg in args.dropFirst() where !arg.hasPrefix("-") {
+            let parts = arg.split(separator: "/").map(String.init)
+            guard let last = parts.last else { continue }
+            out.append((last as NSString).deletingPathExtension)
+            if let nm = parts.lastIndex(of: "node_modules"), nm + 1 < parts.count {
+                var pkg = parts[nm + 1]
+                if pkg.hasPrefix("@"), nm + 2 < parts.count { pkg = parts[nm + 2] }
+                out.append(pkg)
+                for suffix in ["-cli", "-code", "-agent"] where pkg.hasSuffix(suffix) { out.append(String(pkg.dropLast(suffix.count))) }
+            }
+            break
         }
         return out
     }

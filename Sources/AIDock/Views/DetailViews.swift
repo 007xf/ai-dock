@@ -23,8 +23,10 @@ struct ProviderCard: View {
             .help(helpText)
 
             if let usage, !usage.windows.isEmpty {
+                // 分组的名字比较长（例如 Antigravity 的「Claude/GPT 本周」）时加宽名称列
+                let labelWidth: CGFloat = usage.windows.contains { L($0.short).count > 5 } ? 98 : 38
                 ForEach(usage.windows) { w in
-                    WindowLine(window: w, color: provider.color, showDetail: showDetails)
+                    WindowLine(window: w, color: provider.color, showDetail: showDetails, labelWidth: labelWidth)
                 }
             } else if usage == nil {
                 Text(L("正在读取…")).font(.system(size: 11)).foregroundStyle(.secondary)
@@ -38,7 +40,7 @@ struct ProviderCard: View {
                     Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Color.statusSerious)
                 }
                 .font(.system(size: 10)).foregroundStyle(.secondary)
-            } else if let note = usage?.note, showDetails || usage?.source == .localLog {
+            } else if let note = usage?.note, showDetails || usage?.source == .localLog || usage?.quotaMoved == true {
                 Text(note).font(.system(size: 10)).foregroundStyle(.secondary)
             }
         }
@@ -56,13 +58,14 @@ struct WindowLine: View {
     var window: UsageWindow
     var color: Color
     var showDetail = false
+    var labelWidth: CGFloat = 38
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 8) {
                 Text(L(window.short))
                     .font(.system(size: 11)).foregroundStyle(.secondary)
-                    .frame(width: 38, alignment: .leading).lineLimit(1)
+                    .frame(width: labelWidth, alignment: .leading).lineLimit(1)
                 UsageBar(percent: window.usedPercent, color: color)
                 HStack(spacing: 2) {
                     if let s = statusColor(for: window.usedPercent) {
@@ -77,7 +80,7 @@ struct WindowLine: View {
             }
             if showDetail, let detail = window.detail {
                 Text(detail).font(.system(size: 10)).foregroundStyle(.secondary).monospacedDigit()
-                    .padding(.leading, 46)
+                    .padding(.leading, labelWidth + 8)
             }
         }
         .help([L(window.label), Fmt.pct(window.usedPercent), window.detail, Fmt.reset(window.resetsAt)]

@@ -6,7 +6,8 @@ cd "$(dirname "$0")"
 dups=$(grep -oE '^        "[^"]+":' Sources/AIDock/Translations.swift | sort | uniq -d)
 if [ -n "$dups" ]; then echo "❌ Translations.swift 有重复的键：$dups"; exit 1; fi
 swift build -c release --build-system native
-APP="build/AI Dock.app"
+# AIDOCK_OUT 可以改输出目录（例如 build.noindex，不让聚焦收录这份副本）
+APP="${AIDOCK_OUT:-build}/AI Dock.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/AIDock "$APP/Contents/MacOS/AIDock"

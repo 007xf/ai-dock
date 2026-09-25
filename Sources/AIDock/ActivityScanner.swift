@@ -8,6 +8,7 @@ private let activityLog = Logger(subsystem: "local.aidock.app", category: "activ
 /// - 会话日志：Claude Code（~/.claude/projects）、Codex（~/.codex/sessions）、Gemini / Qwen CLI（~/.gemini|.qwen/tmp/*/chats）
 /// - 使用时长：检测到的 AI App 在前台的时间（由 UsageStore 在切换 App 时上报）
 /// - Cursor：Cursor 运行时本地状态库的写入（估算）
+/// - 只能看出「在输出」的工具（Antigravity、Cursor Agent）：会话文件的写入
 /// 启动时扫描一次最近 8 天的日志，之后只在 FSEvents 报告文件变化时增量读取。
 actor ActivityScanner {
     private struct FileState { var offset: UInt64 = 0; var lastTotal = -1 }
@@ -17,8 +18,9 @@ actor ActivityScanner {
     let codexRoots: [String]
     let chatRoots: [(tool: String, path: String)]
     let cursorGlobal = CursorProvider.globalStorage.path
-    let cursorChats = FileManager.default.home.appendingPathComponent(".cursor/chats").path
-    nonisolated var watchPaths: [String] { claudeRoots + codexRoots + chatRoots.map(\.path) + [cursorGlobal, cursorChats] }
+    /// 会话文件写入就说明 AI 在输出，但内容不解析的目录
+    let outputRoots: [(tool: String, path: String)]
+    nonisolated var watchPaths: [String] { claudeRoots + codexRoots + chatRoots.map(\.path) + outputRoots.map(\.path) + [cursorGlobal] }
 
     private var files: [String: FileState] = [:]
     /// Claude / Codex：按分钟累计的请求数和 tokens
@@ -52,6 +54,10 @@ actor ActivityScanner {
         codexRoots = CodexProvider.sessionRoots.map(\.path)
         chatRoots = [("gemini", GeminiProvider.geminiHome.appendingPathComponent("tmp").path),
                      ("qwen", home.appendingPathComponent(".qwen/tmp").path)]
+        let gemini = GeminiProvider.geminiHome
+        outputRoots = [("antigravity", gemini.appendingPathComponent("antigravity/conversations").path),
+                       ("antigravity", gemini.appendingPathComponent("antigravity-cli/conversations").path),
+                       ("cursor", home.appendingPathComponent(".cursor/chats").path)]
         presence = Self.loadPresence()
         for (t, m) in presence { if let last = m.max() { latest[t] = Date(timeIntervalSince1970: Double(last + 1) * 60) } }
     }
@@ -69,6 +75,7 @@ actor ActivityScanner {
         for root in claudeRoots { scanTree(root, tool: "claude", now: now) }
         for root in codexRoots { scanTree(root, tool: "codex", now: now) }
         for (tool, root) in chatRoots { scanChatTree(root, tool: tool, now: now) }
+        for (tool, root) in outputRoots { scanOutputRoot(root, tool: tool) }
         scanned = true
         if cacheDirty { saveCache() }
         // 首次扫描读过大量日志，把已释放的内存立即还给系统
@@ -78,7 +85,8 @@ actor ActivityScanner {
     }
 
     func handle(_ events: [FileWatcher.Event], now: Date = Date()) -> ActivitySnapshot {
-        var cursorTouched = false, cursorCLI = false
+        var cursorTouched = false
+        var output: [(tool: String, root: String, path: String)] = []
         for e in events {
             let path = e.path
             if let root = claudeRoots.first(where: { path.hasPrefix($0) }) {
@@ -90,8 +98,8 @@ actor ActivityScanner {
             } else if path.hasPrefix(cursorGlobal) {
                 let name = (path as NSString).lastPathComponent
                 if name == "state.vscdb-wal" || name == "state.vscdb" { cursorTouched = true }
-            } else if path.hasPrefix(cursorChats) {
-                cursorCLI = true
+            } else if let o = outputRoots.first(where: { path.hasPrefix($0.path) }) {
+                output.append((o.tool, o.path, path))
             }
         }
         // Cursor 编辑器的状态库随时都在写（界面状态、设置），只能说明「在用」，不能说明 AI 在工作；
@@ -99,11 +107,11 @@ actor ActivityScanner {
         if cursorTouched, Self.cursorIDERunning() {
             addPresence("cursor", from: now, to: now)
         }
-        if cursorCLI {
-            addPresence("cursor", from: now, to: now)
-            recentWrites["cursor", default: [:]]["cursor-agent"] = now
-            lastOutput["cursor"] = now
-            activityLog.debug("output cursor-agent")
+        for o in output {
+            addPresence(o.tool, from: now, to: now)
+            recentWrites[o.tool, default: [:]][Self.sessionKey(o.path, root: o.root)] = now
+            lastOutput[o.tool] = now
+            activityLog.debug("output \(o.tool, privacy: .public)")
         }
         relieveMemoryIfNeeded()
         return snapshot(now: now)
@@ -134,6 +142,26 @@ actor ActivityScanner {
     func flush() {
         if presenceDirty { savePresence() }
         if cacheDirty { saveCache() }
+    }
+
+    // MARK: 只看写入时间的会话目录
+
+    /// 会话名：根目录下的第一层（去掉 .db-wal 之类的后缀），同一个会话的几个文件算一个
+    private static func sessionKey(_ path: String, root: String) -> String {
+        let rest = path.dropFirst(root.count).split(separator: "/").first.map(String.init) ?? path
+        return rest.split(separator: ".").first.map(String.init) ?? rest
+    }
+
+    /// 启动时取最近一次写入的时间（刚启动时就能显示「工作中」）
+    private func scanOutputRoot(_ root: String, tool: String) {
+        let fm = FileManager.default
+        guard let names = try? fm.contentsOfDirectory(atPath: root) else { return }
+        for name in names {
+            let path = root + "/" + name
+            guard let m = (try? fm.attributesOfItem(atPath: path))?[.modificationDate] as? Date else { continue }
+            if m > (lastOutput[tool] ?? .distantPast) { lastOutput[tool] = m }
+            if m > (latest[tool] ?? .distantPast) { latest[tool] = m }
+        }
     }
 
     // MARK: Claude / Codex 日志

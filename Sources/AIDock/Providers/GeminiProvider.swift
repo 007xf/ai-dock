@@ -38,10 +38,10 @@ struct GeminiProvider {
 
         do {
             // 套餐和项目
-            var (status, load) = try await Self.post(Self.loadURL, ["metadata": ["ideType": "GEMINI_CLI", "pluginType": "GEMINI"]], token: token)
+            var (status, load) = try await Self.post(Self.loadURL, Self.loadBody, token: token)
             if status == 401, let t = await Self.refresh(&creds) {
                 token = t
-                (status, load) = try await Self.post(Self.loadURL, ["metadata": ["ideType": "GEMINI_CLI", "pluginType": "GEMINI"]], token: token)
+                (status, load) = try await Self.post(Self.loadURL, Self.loadBody, token: token)
             }
             guard status == 200 else {
                 u.error = status == 401 ? L("Gemini 登录已过期，运行一次 gemini 命令即可续期。") : "Gemini：" + HTTP.describe(status: status)
@@ -50,7 +50,8 @@ struct GeminiProvider {
             u.plan = Self.planName(load)
             if load?["currentTier"] == nil,
                let reason = (load?["ineligibleTiers"] as? [[String: Any]])?.first {
-                u.error = (reason["reasonCode"] as? String) == "UNSUPPORTED_CLIENT"
+                u.quotaMoved = (reason["reasonCode"] as? String) == "UNSUPPORTED_CLIENT"
+                u.error = u.quotaMoved
                     ? L("Google 已不再为个人账号提供 Gemini 命令行额度，额度改在 Antigravity 中显示。")
                     : (reason["reasonMessage"] as? String ?? L("这个 Google 账号没有开通 Gemini Code Assist。"))
                 return u
@@ -150,9 +151,31 @@ struct GeminiProvider {
         return access
     }
 
-    private static func post(_ url: URL, _ body: [String: Any], token: String) async throws -> (Int, [String: Any]?) {
-        try await TokenRefresh.postJSON(url, body, headers: ["Authorization": "Bearer \(token)"])
+    /// 和 Gemini 命令行自己发的一样（写成别的客户端类型会被判定为「不支持的客户端」）
+    private static var loadBody: [String: Any] {
+        var meta: [String: Any] = ["ideType": "IDE_UNSPECIFIED", "platform": "PLATFORM_UNSPECIFIED", "pluginType": "GEMINI"]
+        var body: [String: Any] = [:]
+        if let project = UserEnv.value("GOOGLE_CLOUD_PROJECT") ?? UserEnv.value("GOOGLE_CLOUD_PROJECT_ID") {
+            body["cloudaicompanionProject"] = project
+            meta["duetProject"] = project
+        }
+        body["metadata"] = meta
+        return body
     }
+
+    private static func post(_ url: URL, _ body: [String: Any], token: String) async throws -> (Int, [String: Any]?) {
+        try await TokenRefresh.postJSON(url, body, headers: ["Authorization": "Bearer \(token)", "User-Agent": userAgent])
+    }
+
+    /// 按命令行的格式带上版本号（从本机安装的 gemini 读取）
+    private static let userAgent: String = {
+        #if arch(arm64)
+        let arch = "arm64"
+        #else
+        let arch = "x64"
+        #endif
+        return "GeminiCLI/\(GeminiOAuthClient.installedVersion ?? "0.46.0")/gemini-2.5-pro (darwin; \(arch); AIDock)"
+    }()
 }
 
 /// Gemini 命令行的 OAuth 客户端（开源项目里公开的桌面应用凭据），从本机安装的命令行里读取，不写死在 AI Dock 里
@@ -182,8 +205,19 @@ enum GeminiOAuthClient {
         return String(text[r])
     }
 
-    /// 从 gemini 命令的真实位置往上找到安装包，再找存放 OAuth 配置的文件
-    private static func candidateFiles() -> [URL] {
+    /// 本机安装的 gemini 命令行版本
+    static var installedVersion: String? {
+        for root in packageRoots() {
+            guard let data = try? Data(contentsOf: root.appendingPathComponent("package.json")),
+                  let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                  let v = json["version"] as? String else { continue }
+            return v
+        }
+        return nil
+    }
+
+    /// 从 gemini 命令的真实位置往上找到安装包的根目录
+    private static func packageRoots() -> [URL] {
         let fm = FileManager.default
         var roots: [URL] = []
         let clis = UserEnv.binDirs.map { "\($0)/gemini" }
@@ -194,6 +228,13 @@ enum GeminiOAuthClient {
                 dir = dir.deletingLastPathComponent()
             }
         }
+        return roots
+    }
+
+    /// 找存放 OAuth 配置的文件
+    private static func candidateFiles() -> [URL] {
+        let fm = FileManager.default
+        let roots = packageRoots()
         var files: [URL] = []
         for root in roots {
             let direct = ["node_modules/@google/gemini-cli-core/dist/src/code_assist/oauth2.js",

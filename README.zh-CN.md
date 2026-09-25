@@ -26,7 +26,7 @@ AI Dock 用一条外观和行为都和系统 Dock 一致的 Dock 替换系统 Do
 
 **和原生一致的 Dock**
 
-- 常用 App、运行指示灯、最近使用的 App、废纸篓，第一次启动时从系统 Dock 导入。
+- 常用 App、运行指示灯、最近使用的 App、废纸篓，第一次启动时从系统 Dock 导入。已经退出、但还有子进程在后台运行的 App 显示半透明指示灯，和系统 Dock 一样。
 - 鱼眼放大、名称标签、带重力感的启动跳动。
 - 拖动排序，拖进 App 或文件夹来添加，拖出 Dock 移除（带「噗」的烟雾效果）。
 - **AI 小组件也能像 App 一样拖动**：可以调换顺序，也可以放到 App 之间（比如 Claude、微信、Cursor、QQ 这样穿插）。放在 App 之间时和图标一样大，也会跟着一起放大。
@@ -67,7 +67,7 @@ AI Dock 用一条外观和行为都和系统 Dock 一致的 Dock 替换系统 Do
 ## 系统要求
 
 - macOS 26（Tahoe）或更高版本，Apple 芯片或 Intel 均可。开发和测试环境为 macOS 27。
-- 要显示套餐额度，需要在这台 Mac 上登录对应工具：Claude Code、Codex 命令行或 ChatGPT App、Cursor。Antigravity 的额度在它运行时读取。
+- 要显示套餐额度，需要在这台 Mac 上登录对应工具：Claude Code、Codex 命令行或 ChatGPT App、Cursor。Antigravity 的额度在它运行时读取，退出后保留上次读到的数据。
 
 ## 安装
 
@@ -100,8 +100,8 @@ AI Dock 用一条外观和行为都和系统 Dock 一致的 Dock 替换系统 Do
 | Claude Code | `api.anthropic.com/api/oauth/usage` | 钥匙串「Claude Code-credentials」或 `~/.claude/.credentials.json` |
 | ChatGPT / Codex | `chatgpt.com/backend-api/wham/usage`；失败时改用本地会话日志里的 `rate_limits` | `~/.codex/auth.json` |
 | Cursor | `cursor.com/api/usage-summary`（旧套餐：`/api/usage`） | Cursor 本地的 `state.vscdb`，只读打开 |
-| Antigravity | Antigravity 自己在 `127.0.0.1` 上运行的本地服务（`RetrieveUserQuotaSummary` / `GetUserStatus`），只在 Antigravity 开着时可读 | 从本地服务的进程参数中读取会话令牌 |
-| Gemini | `cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota`（Gemini Code Assist） | `~/.gemini/oauth_creds.json`。Google 已不再向个人账号提供这项额度，个人账号的额度改在 Antigravity 中显示 |
+| Antigravity | Antigravity 自己在 `127.0.0.1` 上运行的本地服务（`RetrieveUserQuotaSummary` / `GetUserStatus`）。只在 Antigravity 开着时可读，退出后继续显示上次读到的额度 | 从本地服务的进程参数中读取会话令牌 |
+| Gemini | `cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota`（Gemini Code Assist） | `~/.gemini/oauth_creds.json`。Google 已不再向个人账号提供这项额度，个人账号的 Gemini 小组件改为显示 Antigravity 中 Gemini 模型的额度（仅限同一个 Google 账号） |
 
 - **AI 活动**来自 `~/.claude/projects`、`~/.codex/sessions`、`~/.gemini/tmp`、`~/.qwen/tmp` 下的本地会话日志，再加上各 AI App 在前台的时长（离开超过 5 分钟的部分不计）。Token 数包含缓存 Token，和官方面板的口径一致。每日统计按本地时间划分，有些官方面板按 UTC 划分。
 - **登录续期**：
@@ -115,7 +115,7 @@ AI Dock 用一条外观和行为都和系统 Dock 一致的 Dock 替换系统 Do
 ```bash
 git clone https://github.com/007xf/ai-dock.git
 cd ai-dock
-./build.sh                      # 生成 build/AI Dock.app
+./build.sh                      # 生成 build/AI Dock.app（设置 AIDOCK_OUT=build.noindex 可避免聚焦搜索收录这份副本）
 open "build/AI Dock.app"
 ```
 

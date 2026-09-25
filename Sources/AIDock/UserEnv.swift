@@ -10,6 +10,7 @@ enum UserEnv {
     private static let wanted: Set<String> = [
         "PATH", "SHELL", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "GEMINI_CLI_HOME", "NVM_DIR", "VOLTA_HOME",
         "PNPM_HOME", "BUN_INSTALL", "FNM_DIR", "ASDF_DATA_DIR", "MISE_DATA_DIR", "XDG_CONFIG_HOME",
+        "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_PROJECT_ID",
     ]
     private static let lock = NSLock()
     nonisolated(unsafe) private static var vars: [String: String] =

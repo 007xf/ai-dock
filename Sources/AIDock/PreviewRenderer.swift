@@ -117,6 +117,30 @@ enum PreviewRenderer {
             render(ProviderCard(provider: .cursor, usage: store.usages[.cursor], live: store.activity.live[.cursor], showDetails: true)
                     .padding(14).frame(width: 300),
                    appearance: appearance, to: dir.appendingPathComponent("popover-cursor-\(name).png"))
+            // Antigravity 的四个额度，以及借用它的 Gemini（按真实接口返回的结构解析）
+            let resetSoon = ISO8601DateFormatter().string(from: Date().addingTimeInterval(3 * 3600))
+            let resetWeek = ISO8601DateFormatter().string(from: Date().addingTimeInterval(6 * 86400))
+            let summary: [String: Any] = ["response": ["groups": [
+                ["displayName": "Gemini Models", "buckets": [
+                    ["bucketId": "gemini-weekly", "window": "weekly", "remainingFraction": 0.62, "resetTime": resetWeek],
+                    ["bucketId": "gemini-5h", "window": "5h", "remainingFraction": 0.35, "resetTime": resetSoon]]],
+                ["displayName": "Claude and GPT models", "buckets": [
+                    ["bucketId": "3p-weekly", "window": "weekly", "remainingFraction": 0.9, "resetTime": resetWeek],
+                    ["bucketId": "3p-5h", "window": "5h", "remainingFraction": 1, "resetTime": resetSoon]]]]]]
+            var ag = ProviderUsage(provider: AntigravityProvider.provider)
+            ag.windows = AntigravityProvider.parseSummary(summary)
+            ag.plan = "Pro"
+            ag.source = .api
+            var all: [Provider: ProviderUsage] = [AntigravityProvider.provider: ag]
+            var gm = ProviderUsage(provider: .gemini)
+            gm.quotaMoved = true
+            gm.error = "moved"
+            all[.gemini] = gm
+            UsageStore.borrowGeminiQuota(&all)
+            render(VStack(alignment: .leading, spacing: 14) {
+                ProviderCard(provider: AntigravityProvider.provider, usage: all[AntigravityProvider.provider])
+                ProviderCard(provider: .gemini, usage: all[.gemini])
+            }.padding(14).frame(width: 320), appearance: appearance, to: dir.appendingPathComponent("card-antigravity-\(name).png"))
         }
     }
 

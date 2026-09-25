@@ -155,6 +155,13 @@ final class UsageStore: ObservableObject {
             }
             .sink { [weak self] _ in self?.redetect() }
             .store(in: &bag)
+        // 有额度的 App 启动后（例如 Antigravity 的本地服务）过几秒再读一次额度
+        ws.publisher(for: NSWorkspace.didLaunchApplicationNotification)
+            .compactMap { ($0.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.bundleIdentifier }
+            .filter { id in ToolRegistry.quotaTools.contains { $0.id == ToolRegistry.toolID(forBundle: id) } }
+            .debounce(for: .seconds(10), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in self?.refreshNow() }
+            .store(in: &bag)
         // App 启动 / 退出：更新「打开了没」
         Publishers.MergeMany(ws.publisher(for: NSWorkspace.didLaunchApplicationNotification),
                              ws.publisher(for: NSWorkspace.didTerminateApplicationNotification))
@@ -176,6 +183,8 @@ final class UsageStore: ObservableObject {
     }
 
     func start() {
+        // 先显示上次读到的额度，刷新完成后再更新
+        for (p, u) in QuotaCache.load() where usages[p] == nil { usages[p] = u }
         detectTools()
         // 读一次登录 shell 的环境（PATH、配置目录）；和缓存不同就重新检测
         Task { [weak self] in
@@ -300,6 +309,30 @@ final class UsageStore: ObservableObject {
         Task { await refreshUsage() }
     }
 
+    /// Google 把个人账号的 Gemini 额度移到了 Antigravity：Gemini 命令行读不到时，显示 Antigravity 里「Gemini 模型」那一组。
+    /// 两边登录的不是同一个 Google 账号时不借用
+    static func borrowGeminiQuota(_ usages: inout [Provider: ProviderUsage]) {
+        guard var g = usages[.gemini], g.quotaMoved, let a = usages[AntigravityProvider.provider] else { return }
+        if let e1 = g.account?.lowercased(), let e2 = a.account?.lowercased(), e1 != e2 { return }
+        let windows = a.windows.filter { $0.id.hasPrefix("Gemini-") }.map { w -> UsageWindow in
+            var w = w
+            let weekly = w.id.hasSuffix("week")
+            w.id = "antigravity-" + w.id
+            w.label = weekly ? L("本周") : L("5 小时窗口")
+            w.short = weekly ? L("本周") : "5h"
+            return w
+        }
+        guard !windows.isEmpty else { return }
+        g.windows = windows
+        g.plan = a.plan
+        g.source = a.source
+        g.updatedAt = a.updatedAt
+        g.stale = a.stale
+        g.error = a.stale ? a.error : nil
+        g.note = L("Google 已把个人账号的 Gemini 额度移到 Antigravity，这里显示 Antigravity 中 Gemini 模型的额度。")
+        usages[.gemini] = g
+    }
+
     private nonisolated static func fetchQuota(_ p: Provider) async -> ProviderUsage {
         switch p.id {
         case "claude": return await ClaudeProvider().fetch()
@@ -323,23 +356,31 @@ final class UsageStore: ObservableObject {
             for await r in group { out.append(r) }
             return out
         }
+        var next = usages
         for r in results {
             usageLog.debug("\(r.provider.id, privacy: .public): \(r.windows.count) windows \(r.windows.map { "\($0.short)=\(Int($0.usedPercent))%" }.joined(separator: " "), privacy: .public) plan=\(r.plan ?? "-", privacy: .public) error=\(r.error ?? "-", privacy: .public)")
-            // 刷新失败时保留上一次成功的数据，只标记为过期
-            if r.windows.isEmpty, r.error != nil, var old = usages[r.provider], !old.windows.isEmpty {
+            // 刷新失败时保留上一次成功的数据（包括上次运行时保存的），只标记为过期；过了重置时间的按已重置显示
+            if r.windows.isEmpty, r.error != nil, !r.quotaMoved, var old = next[r.provider], !old.windows.isEmpty {
                 old.error = r.error
                 old.stale = true
-                if usages[r.provider] != old { usages[r.provider] = old }
-            } else if usages[r.provider] != r {
-                usages[r.provider] = r
+                old.windows = QuotaCache.aged(old.windows)
+                next[r.provider] = old
+            } else {
+                next[r.provider] = r
             }
         }
+        Self.borrowGeminiQuota(&next)
+        if let g = next[.gemini], g.quotaMoved { usageLog.debug("gemini: showing \(g.windows.count) windows from Antigravity") }
+        for (p, u) in next where usages[p] != u { usages[p] = u }
+        QuotaCache.save(results)
         for p in local {
             let info = await LocalModelsProvider.fetch(p.id)
             if localModels[p] != info { localModels[p] = info }
         }
         await refreshBalances()
         lastRefresh = Date()
+        // 把刷新过程中用过又释放的内存还给系统（否则空闲时也一直占着）
+        malloc_zone_pressure_relief(nil, 0)
     }
 
     func refreshBalances() async {
