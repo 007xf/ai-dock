@@ -310,10 +310,12 @@ final class UsageStore: ObservableObject {
     }
 
     /// Google 把个人账号的 Gemini 额度移到了 Antigravity：Gemini 命令行读不到时，显示 Antigravity 里「Gemini 模型」那一组。
-    /// 两边登录的不是同一个 Google 账号时不借用
+    /// 只有确认两边登录的是同一个 Google 账号时才借用（持久化缓存不保存账号）。
     static func borrowGeminiQuota(_ usages: inout [Provider: ProviderUsage]) {
-        guard var g = usages[.gemini], g.quotaMoved, let a = usages[AntigravityProvider.provider] else { return }
-        if let e1 = g.account?.lowercased(), let e2 = a.account?.lowercased(), e1 != e2 { return }
+        guard var g = usages[.gemini], g.quotaMoved, let a = usages[AntigravityProvider.provider],
+              let e1 = g.account?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !e1.isEmpty,
+              let e2 = a.account?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !e2.isEmpty,
+              e1 == e2 else { return }
         let windows = a.windows.filter { $0.id.hasPrefix("Gemini-") }.map { w -> UsageWindow in
             var w = w
             let weekly = w.id.hasSuffix("week")
