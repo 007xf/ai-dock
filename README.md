@@ -121,6 +121,7 @@ open "build/AI Dock.app"
 
 - `swift scripts/make_logos.swift` regenerates the brand logos in `Resources/Logos` from the official apps installed on your Mac.
 - `"build/AI Dock.app/Contents/MacOS/AIDock" --render /tmp/preview` renders the UI with demo data to PNG files.
+- `./scripts/test.sh` runs isolated regression checks with Command Line Tools; it does not launch the app or change the system Dock.
 
 ## Uninstall
 

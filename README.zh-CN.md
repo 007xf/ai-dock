@@ -121,6 +121,7 @@ open "build/AI Dock.app"
 
 - `swift scripts/make_logos.swift`：从本机已安装的官方 App 重新生成 `Resources/Logos` 里的品牌标志。
 - `"build/AI Dock.app/Contents/MacOS/AIDock" --render /tmp/preview`：用示例数据把界面渲染成 PNG。
+- `./scripts/test.sh`：用 Command Line Tools 运行独立回归检查，不会启动 App 或修改系统 Dock。
 
 ## 卸载
 

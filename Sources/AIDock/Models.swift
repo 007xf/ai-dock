@@ -163,12 +163,9 @@ struct ActivitySnapshot: Equatable {
         return set.sorted()
     }
 
-    /// 比较内容时忽略扫描时间，避免没有变化也触发界面刷新
-    private static func sessionsEqual(_ a: ActivitySnapshot, _ b: ActivitySnapshot) -> Bool {
-        Set(a.live.keys).union(b.live.keys).allSatisfy { a.live[$0]?.sessions == b.live[$0]?.sessions }
-    }
-
+    /// 比较内容时忽略扫描时间，避免没有变化也触发界面刷新。
+    /// 保留最新输出时间：界面会用它判断「工作中」，不能只比较状态和会话数。
     static func == (a: ActivitySnapshot, b: ActivitySnapshot) -> Bool {
-        a.hours == b.hours && a.days == b.days && a.states == b.states && sessionsEqual(a, b) && (a.scannedAt == nil) == (b.scannedAt == nil)
+        a.hours == b.hours && a.days == b.days && a.states == b.states && a.live == b.live && (a.scannedAt == nil) == (b.scannedAt == nil)
     }
 }
