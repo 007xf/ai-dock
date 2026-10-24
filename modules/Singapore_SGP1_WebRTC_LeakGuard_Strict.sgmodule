@@ -1,0 +1,34 @@
+#!name=Singapore SGP1 | WebRTC 防泄漏（严格模式）
+#!desc=叠加 2026-10-18 SGP1 智能分流；优先保留局域网直连，拒绝经 TUN 的其余 UDP（含 STUN/QUIC）；不修改现有 DNS、IPv6、广告规则与节点。会影响实时音视频/游戏。
+# For: Singapore_SGP1_Smart_DNS_IPv4.conf (2026-10-18)
+# Independent Shadowrocket module. Do NOT replace the base .conf.
+# Security model: fail closed for public UDP captured by Shadowrocket TUN.
+# This cannot govern traffic excluded from / bypassing the iOS VPN tunnel.
+# Intentional: do NOT set stun-response-ip or stun-response-ipv6 here,
+# because those override Shadowrocket's Settings > UDP > Disable STUN toggle.
+
+[General]
+# Force full TUN processing (equivalent to Settings > Proxy > Proxy Type > None).
+compatibility-mode = 3
+# When an upstream proxy cannot relay UDP, reject instead of DIRECT fallback.
+udp-policy-not-supported-behaviour = REJECT
+
+[Rule]
+# Stop common STUN/TURN traffic even when attempted over TCP.
+DOMAIN-KEYWORD,stun,REJECT-NO-DROP
+DST-PORT,3478-3481,REJECT-NO-DROP
+DST-PORT,5349,REJECT-NO-DROP
+DST-PORT,19302-19309,REJECT-NO-DROP
+
+# Preserve local network/Apple device discovery when private unicast addresses
+# enter the TUN. The base config already excludes multicast/link-local routes.
+IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
+IP-CIDR,172.16.0.0/12,DIRECT,no-resolve
+IP-CIDR,192.168.0.0/16,DIRECT,no-resolve
+IP-CIDR,169.254.0.0/16,DIRECT,no-resolve
+IP-CIDR,127.0.0.0/8,DIRECT,no-resolve
+
+# Strict fallback: block ALL remaining UDP destination ports, including
+# nonstandard STUN ports, direct UDP, and UDP/443 QUIC.
+# TCP browsing/DoH remain available via original routing rules.
+AND,((PROTOCOL,UDP),(DST-PORT,1-65535)),REJECT-NO-DROP
