@@ -17,6 +17,7 @@ struct RegressionTests {
         testOutputSnapshot()
         testScanTimeOnly()
         testGeminiAccounts()
+        testTokenRefreshPermissions()
         print("\(failures) regression failure(s)")
         exit(failures == 0 ? 0 : 1)
     }
@@ -69,5 +70,18 @@ struct RegressionTests {
         expect(values[.gemini]!.windows.first?.usedPercent == 42
                && values[.gemini]!.windows.first?.id == "antigravity-Gemini-5h",
                "confirmed matching accounts can borrow Gemini quota")
+    }
+
+    private static func testTokenRefreshPermissions() {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("aidock-test-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("auth.json")
+        do {
+            try TokenRefresh.writeFile(Data("{\"ok\":true}".utf8), to: file)
+            let perms = (try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int ?? 0) & 0o777
+            expect(perms == 0o600, "new refreshed token file defaults to 0600 permissions")
+        } catch {
+            expect(false, "TokenRefresh.writeFile succeeded: \(error)")
+        }
     }
 }

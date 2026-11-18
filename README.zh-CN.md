@@ -9,7 +9,8 @@
 [English](README.md) · 简体中文
 
 [![Release](https://img.shields.io/github/v/release/007xf/ai-dock)](https://github.com/007xf/ai-dock/releases)
-![macOS](https://img.shields.io/badge/macOS-26%2B-black)
+[![CI](https://github.com/007xf/ai-dock/actions/workflows/ci.yml/badge.svg)](https://github.com/007xf/ai-dock/actions/workflows/ci.yml)
+![macOS](https://img.shields.io/badge/macOS-14%2B-black)
 ![Swift](https://img.shields.io/badge/Swift-5.10-orange)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
@@ -66,13 +67,13 @@ AI Dock 用一条外观和行为都和系统 Dock 一致的 Dock 替换系统 Do
 
 ## 系统要求
 
-- macOS 26（Tahoe）或更高版本，Apple 芯片或 Intel 均可。开发和测试环境为 macOS 27。
+- macOS 14（Sonoma）或更高版本，通用版二进制同时支持 Apple 芯片与 Intel（macOS 26 Tahoe 及以上启用原生清透玻璃，macOS 14–15 自动使用系统材质毛玻璃）。开发和测试环境为 macOS 27。
 - 要显示套餐额度，需要在这台 Mac 上登录对应工具：Claude Code、Codex 命令行或 ChatGPT App、Cursor。Antigravity 的额度在它运行时读取，退出后保留上次读到的数据。
 
 ## 安装
 
 1. 在 [Releases](https://github.com/007xf/ai-dock/releases) 下载 `AI-Dock-x.y.z.zip`，解压后把 **AI Dock.app** 拖进「应用程序」。
-2. App 使用本地临时签名（ad-hoc），没有经过 Apple 公证，第一次打开会被系统拦截。可以右键点按 App，选「打开」，再点「打开」；也可以在终端运行：
+2. App 使用本地临时签名（ad-hoc），没有经过 Apple 公证，第一次打开会被系统拦截。macOS 15 及以后：先双击打开一次，再到「系统设置 → 隐私与安全性」底部点「仍要打开」并确认（右键选「打开」仅适用于 macOS 14）；也可以在终端运行：
    ```bash
    xattr -dr com.apple.quarantine "/Applications/AI Dock.app"
    ```

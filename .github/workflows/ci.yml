@@ -1,0 +1,41 @@
+name: AI Dock CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Check duplicate translation keys
+        run: |
+          dups=$(grep -oE '^        "[^"]+":' Sources/AIDock/Translations.swift | sort | uniq -d || true)
+          if [ -n "$dups" ]; then
+            echo "Duplicate translation keys: $dups" >&2
+            exit 1
+          fi
+
+      - name: Run isolated regression tests
+        run: ./scripts/test.sh
+
+      - name: Build Universal app bundle
+        run: AIDOCK_OUT=build.noindex ./build.sh
+
+      - name: Verify Universal architectures and bundle signature
+        run: |
+          BIN="build.noindex/AI Dock.app/Contents/MacOS/AIDock"
+          test -x "$BIN"
+          ARCHS="$(lipo -archs "$BIN")"
+          echo "Architectures: $ARCHS"
+          [[ "$ARCHS" == *arm64* && "$ARCHS" == *x86_64* ]]
+          codesign --verify --deep --strict "build.noindex/AI Dock.app"

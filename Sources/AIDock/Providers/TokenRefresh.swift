@@ -32,12 +32,38 @@ enum TokenRefresh {
         return ((resp as? HTTPURLResponse)?.statusCode ?? 0, (try? JSONSerialization.jsonObject(with: data)) as? [String: Any])
     }
 
-    /// 原子写入文件，保留原来的权限（这些文件通常是 600）
+    /// 原子写入文件，从临时文件创建起即保持严格权限（默认 0600），避免默认 umask 造成短暂可读窗口
     static func writeFile(_ data: Data, to url: URL) throws {
-        let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
-        try data.write(to: url, options: .atomic)
-        if let perm = attrs?[.posixPermissions] {
-            try? FileManager.default.setAttributes([.posixPermissions: perm], ofItemAtPath: url.path)
+        let fm = FileManager.default
+        let existingMode = (try? fm.attributesOfItem(atPath: url.path))?[.posixPermissions] as? Int
+        let mode = mode_t((existingMode ?? 0o600) & 0o777)
+        let dir = url.deletingLastPathComponent()
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let tmp = dir.appendingPathComponent(".\(url.lastPathComponent).tmp.\(UUID().uuidString)")
+        let fd = open(tmp.path, O_WRONLY | O_CREAT | O_EXCL, mode)
+        guard fd >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        do {
+            guard fchmod(fd, mode) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+            try data.withUnsafeBytes { raw in
+                guard let base = raw.baseAddress else { return }
+                var written = 0
+                while written < raw.count {
+                    let n = write(fd, base.advanced(by: written), raw.count - written)
+                    if n < 0 {
+                        if errno == EINTR { continue }
+                        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                    }
+                    written += n
+                }
+            }
+            close(fd)
+            guard rename(tmp.path, url.path) == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+        } catch {
+            close(fd)
+            unlink(tmp.path)
+            throw error
         }
     }
 

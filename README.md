@@ -9,7 +9,8 @@
 English · [简体中文](README.zh-CN.md)
 
 [![Release](https://img.shields.io/github/v/release/007xf/ai-dock)](https://github.com/007xf/ai-dock/releases)
-![macOS](https://img.shields.io/badge/macOS-26%2B-black)
+[![CI](https://github.com/007xf/ai-dock/actions/workflows/ci.yml/badge.svg)](https://github.com/007xf/ai-dock/actions/workflows/ci.yml)
+![macOS](https://img.shields.io/badge/macOS-14%2B-black)
 ![Swift](https://img.shields.io/badge/Swift-5.10-orange)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
@@ -66,13 +67,13 @@ AI Dock replaces the system Dock with a look-alike that behaves the same way, th
 
 ## Requirements
 
-- macOS 26 (Tahoe) or later on Apple silicon or Intel. It was developed and tested on macOS 27.
+- macOS 14 (Sonoma) or later on Apple silicon or Intel (Universal binary; uses native Liquid Glass on macOS 26 Tahoe or later and material blur on macOS 14–15). Developed and tested on macOS 27.
 - To show plan limits, the matching tool must be signed in on this Mac: Claude Code, the Codex CLI or ChatGPT app, and Cursor. Antigravity's quota is read while Antigravity is running, and the last reading is kept after you quit it.
 
 ## Install
 
 1. Download `AI-Dock-x.y.z.zip` from [Releases](https://github.com/007xf/ai-dock/releases), unzip it, and move **AI Dock.app** to `/Applications`.
-2. The app is ad-hoc signed, not notarized, so Gatekeeper blocks the first launch. Either right-click the app, choose **Open**, then **Open**, or run:
+2. The app is ad-hoc signed, not notarized, so Gatekeeper blocks the first launch. On macOS 15 and later: double-click the app once, then open **System Settings → Privacy & Security**, click **Open Anyway** at the bottom and confirm (right-click → **Open** only works on macOS 14). Or run:
    ```bash
    xattr -dr com.apple.quarantine "/Applications/AI Dock.app"
    ```

@@ -76,13 +76,21 @@ extension View {
         } else if RenderEnv.preview {
             self.background(shape.fill(Color.primary.opacity(0.07)))
                 .overlay(shape.strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5))
-        } else if #available(macOS 26.0, *) {
-            // 系统 Dock 用的是更通透的「清透」玻璃（.regular 带磨砂，看起来发实）
-            self.glassEffect(.clear, in: shape)
         } else {
+            #if compiler(>=6.2)
+            if #available(macOS 26.0, *) {
+                // 系统 Dock 用的是更通透的「清透」玻璃（.regular 带磨砂，看起来发实）
+                self.glassEffect(.clear, in: shape)
+            } else {
+                self.background(.ultraThinMaterial, in: shape)
+                    .overlay(shape.strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.5))
+                    .shadow(color: .black.opacity(0.18), radius: 14, y: 6)
+            }
+            #else
             self.background(.ultraThinMaterial, in: shape)
                 .overlay(shape.strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.5))
                 .shadow(color: .black.opacity(0.18), radius: 14, y: 6)
+            #endif
         }
     }
 }

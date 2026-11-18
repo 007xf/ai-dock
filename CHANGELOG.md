@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.1.2] - 2026-11-18
+
+### Fixed / 修复
+- Live activity status: continued AI output within the same minute updates the widget's output timestamp instead of letting it expire early (#1).
+  实时活动状态：同一分钟内持续输出时会更新输出时间戳，避免小组件提前从「工作中」变暗（#1）。
+- Borrowed Gemini quota: only borrow Antigravity's Gemini quota when both account identities are present and match after normalization (#1).
+  借用 Gemini 额度：仅在两个工具的账号均不为空且规范化后一致时才借用 Antigravity 中的 Gemini 额度（#1）。
+- Universal release build: `build.sh` and release archives now build both `arm64` and `x86_64` slices (`macos 14.0+`) instead of only the host architecture.
+  通用版构建：`build.sh` 与发布压缩包改为同时构建 `arm64` 与 `x86_64` 双架构（最低支持 macOS 14.0），与文档声明一致。
+- Token refresh file permissions: write refreshed OAuth credentials to a `0600` temporary file before atomic replacement so no world-readable window occurs.
+  令牌续期文件权限：OAuth 续期写回本地文件时先以 `0600` 权限创建临时文件再原子替换，消除短暂默认权限窗口。
+
+### Added / 新增
+- GitHub Actions CI workflow verifying translation keys, isolated regression tests, Universal architectures and bundle signatures on every push and pull request.
+  新增 GitHub Actions CI 工作流，自动检查重复翻译键、隔离回归测试、通用架构及应用包签名。
+- Updated macOS 15+ Gatekeeper launch instructions and macOS 14+ compatibility notes in English and Chinese READMEs.
+  更新中英文 README 中的 macOS 15+ Gatekeeper 放行步骤与 macOS 14+ 系统兼容说明。
+
 ## [1.1.1] - 2026-09-25
 
 ### Fixed / 修复
