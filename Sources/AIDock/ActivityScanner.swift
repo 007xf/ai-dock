@@ -328,7 +328,9 @@ actor ActivityScanner {
         // Codex 会重复发送相同累计值的 token_count，用累计总量去重；
         // token 数取累计总量的增量（含缓存命中的输入），与 ChatGPT 个人资料里的统计口径一致
         let last = info["last_token_usage"] as? [String: Any]
-        let lastTotal = Int(jnum(last?["total_tokens"]) ?? (jnum(last?["input_tokens"]) ?? 0) + (jnum(last?["output_tokens"]) ?? 0))
+        let inputTokens = jnum(last?["input_tokens"]) ?? 0
+        let outputTokens = jnum(last?["output_tokens"]) ?? 0
+        let lastTotal = Int(jnum(last?["total_tokens"]) ?? (inputTokens + outputTokens))
         let total = Int(jnum((info["total_token_usage"] as? [String: Any])?["total_tokens"]) ?? -1)
         var tokens = lastTotal
         if total >= 0 {
@@ -403,8 +405,15 @@ actor ActivityScanner {
             if ["gemini", "model", "assistant", "qwen"].contains(type) {
                 s.requests += 1
                 if let t = m["tokens"] as? [String: Any] {
-                    s.tokens += Int(jnum(t["total"]) ?? ((jnum(t["input"]) ?? 0) + (jnum(t["output"]) ?? 0)
-                                                        + (jnum(t["thoughts"]) ?? 0) + (jnum(t["tool"]) ?? 0)))
+                    if let total = jnum(t["total"]) {
+                        s.tokens += Int(total)
+                    } else {
+                        let input = jnum(t["input"]) ?? 0
+                        let output = jnum(t["output"]) ?? 0
+                        let thoughts = jnum(t["thoughts"]) ?? 0
+                        let tool = jnum(t["tool"]) ?? 0
+                        s.tokens += Int(input + output + thoughts + tool)
+                    }
                 }
             }
             minutes[minute] = s
